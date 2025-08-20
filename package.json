@@ -1,0 +1,19 @@
+{
+  "name": "resolvia",
+  "version": "1.0.0",
+  "description": "Smart Helpdesk with Agentic Triage - A MERN stack application",
+  "main": "index.js",
+  "scripts": {
+    "dev": "concurrently \"npm run server\" \"npm run client\"",
+    "server": "cd backend && npm run dev",
+    "client": "cd frontend && npm run dev",
+    "test": "cd backend && npm test && cd ../frontend && npm test",
+    "install-all": "npm install && cd backend && npm install && cd ../frontend && npm install"
+  },
+  "keywords": ["helpdesk", "ai", "triage", "mern", "react", "node"],
+  "author": "Resolvia Team",
+  "license": "MIT",
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}

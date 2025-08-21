@@ -2,6 +2,7 @@ import request from 'supertest';
 import app from '../server.js';
 import User from '../models/User.js';
 import mongoose from 'mongoose';
+import bcrypt from 'bcryptjs';
 
 describe('Authentication', () => {
   beforeAll(async () => {
@@ -77,14 +78,16 @@ describe('Authentication', () => {
 
   describe('POST /api/auth/login', () => {
     beforeEach(async () => {
-      // Create a test user
-      const user = new User({
+      // Hash password for test user
+      const saltRounds = 10;
+      const hashedPassword = await bcrypt.hash('password123', saltRounds);
+
+      const user = await User.create({
         name: 'Test User',
         email: 'test@example.com',
-        passwordHash: 'password123',
+        passwordHash: hashedPassword,
         role: 'user'
       });
-      await user.save();
     });
 
     it('should login with valid credentials', async () => {

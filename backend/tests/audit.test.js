@@ -2,6 +2,7 @@ import AuditLog from '../models/AuditLog.js';
 import User from '../models/User.js';
 import Ticket from '../models/Ticket.js';
 import mongoose from 'mongoose';
+import bcrypt from 'bcryptjs';
 
 describe('Audit Logging', () => {
   let testUser;
@@ -18,11 +19,14 @@ describe('Audit Logging', () => {
     await User.deleteMany({});
     await Ticket.deleteMany({});
 
-    // Create test user
-    testUser = await User.create({
+    // Hash password for test user
+    const saltRounds = 10;
+    const hashedPassword = await bcrypt.hash('hashedpassword', saltRounds);
+
+    const user = await User.create({
       name: 'Test User',
       email: 'test@example.com',
-      passwordHash: 'hashedpassword',
+      passwordHash: hashedPassword,
       role: 'user'
     });
 
@@ -32,7 +36,7 @@ describe('Audit Logging', () => {
       description: 'This ticket is for testing audit functionality',
       category: 'tech',
       status: 'open',
-      createdBy: testUser._id
+      createdBy: user._id
     });
 
     traceId = `test-trace-${Date.now()}`;

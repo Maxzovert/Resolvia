@@ -23,8 +23,12 @@ router.get('/',
   authenticateToken,
   validateQuery(searchSchema),
   asyncHandler(async (req, res) => {
-    const { status, category, limit = 20, page = 1, query } = req.query;
+    const { status, category, limit = 20, page = 1, query, unassigned, myRequests } = req.query;
     const skip = (page - 1) * limit;
+    
+    console.log('Ticket query params:', req.query);
+    console.log('Unassigned value:', unassigned, 'Type:', typeof unassigned);
+    console.log('MyRequests value:', myRequests, 'Type:', typeof myRequests);
     
     let filterQuery = {};
     
@@ -32,16 +36,29 @@ router.get('/',
     if (req.user.role === 'user') {
       filterQuery.createdBy = req.user._id;
     } else if (req.user.role === 'agent') {
-      // Agents see assigned tickets + unassigned tickets
-      filterQuery.$or = [
-        { assignee: req.user._id },
-        { assignee: null, status: { $in: ['triaged', 'waiting_human'] } }
-      ];
+      // Check if specifically requesting unassigned tickets
+      if (req.query.unassigned === 'true') {
+        filterQuery.assignee = null;
+        filterQuery.status = { $in: ['triaged', 'waiting_human'] };
+      } else if (req.query.myRequests === 'true') {
+        // Agents requesting their own assignment requests
+        filterQuery['pendingAssignment.requestedBy'] = req.user._id;
+        console.log('MyRequests query - User ID:', req.user._id);
+        console.log('MyRequests filter:', filterQuery);
+      } else {
+        // Agents see assigned tickets + unassigned tickets
+        filterQuery.$or = [
+          { assignee: req.user._id },
+          { assignee: null, status: { $in: ['triaged', 'waiting_human'] } }
+        ];
+      }
     }
     // Admins see all tickets
     
     // Apply additional filters
-    if (status) filterQuery.status = status;
+    if (status && req.query.unassigned !== 'true') {
+      filterQuery.status = status;
+    }
     if (category) filterQuery.category = category;
     if (query) {
       filterQuery.$text = { $search: query };
@@ -50,9 +67,17 @@ router.get('/',
     const tickets = await Ticket.find(filterQuery)
       .populate('createdBy', 'name email')
       .populate('assignee', 'name email')
+      .populate('pendingAssignment.requestedBy', 'name email')
+      .select('title status priority category createdAt createdBy assignee pendingAssignment lastActivity')
       .sort({ lastActivity: -1 })
       .limit(parseInt(limit))
       .skip(parseInt(skip));
+    
+    console.log('Tickets query result count:', tickets.length);
+    if (tickets.length > 0 && req.query.myRequests === 'true') {
+      console.log('First ticket pendingAssignment:', tickets[0].pendingAssignment);
+      console.log('First ticket requestedBy:', tickets[0].pendingAssignment?.requestedBy);
+    }
     
     const total = await Ticket.countDocuments(filterQuery);
     
@@ -143,6 +168,40 @@ router.post('/',
   })
 );
 
+// Get pending assignment requests (admin only)
+router.get('/pending-assignments',
+  authenticateToken,
+  requireAgent,
+  asyncHandler(async (req, res) => {
+    console.log('Pending assignments route hit');
+    console.log('User role:', req.user.role);
+    
+    if (req.user.role !== 'admin') {
+      console.log('Access denied - not admin');
+      return res.status(403).json({ error: 'Only admins can view pending assignments' });
+    }
+    
+    try {
+      console.log('Querying for pending assignments...');
+      const pendingTickets = await Ticket.find({
+        'pendingAssignment.status': 'pending'
+      })
+      .populate('createdBy', 'name email')
+      .populate('pendingAssignment.requestedBy', 'name email')
+      .sort({ 'pendingAssignment.requestedAt': 1 });
+      
+      console.log('Found pending tickets:', pendingTickets.length);
+      
+      res.json({
+        pendingAssignments: pendingTickets
+      });
+    } catch (error) {
+      console.error('Error in pending-assignments route:', error);
+      res.status(500).json({ error: 'Internal server error', details: error.message });
+    }
+  })
+);
+
 // Get single ticket
 router.get('/:id',
   authenticateToken,
@@ -150,6 +209,7 @@ router.get('/:id',
     const ticket = await Ticket.findById(req.params.id)
       .populate('createdBy', 'name email')
       .populate('assignee', 'name email')
+      .populate('pendingAssignment.requestedBy', 'name email')
       .populate('replies.author', 'name email role');
     
     if (!ticket) {
@@ -204,6 +264,13 @@ router.put('/:id',
       return res.status(403).json({ error: 'Access denied' });
     }
     
+    // Restrict users from updating status and priority
+    if (req.user.role === 'user' && (req.body.status || req.body.priority)) {
+      return res.status(403).json({ 
+        error: 'Users cannot update ticket status or priority. Please contact support.' 
+      });
+    }
+    
     const oldStatus = ticket.status;
     const updates = req.body;
     
@@ -227,9 +294,13 @@ router.put('/:id',
         description: `Status changed from ${oldStatus} to ${updates.status}`,
         meta: { oldStatus, newStatus: updates.status }
       });
+      
+      // Update lastActivity when status changes
+      ticket.lastActivity = new Date();
+      await ticket.save();
     }
     
-    await ticket.populate(['createdBy', 'assignee'], 'name email');
+    await ticket.populate(['createdBy', 'assignee', 'pendingAssignment.requestedBy'], 'name email');
     
     res.json({
       message: 'Ticket updated successfully',
@@ -369,53 +440,201 @@ router.post('/:id/comments',
   })
 );
 
-// Assign ticket to agent
+// Request assignment to a ticket
 router.post('/:id/assign',
   authenticateToken,
-  requireAgent,
-  validateRequest(assignTicketSchema),
   asyncHandler(async (req, res) => {
+    const { id } = req.params;
     const { assigneeId } = req.body;
     
+    const ticket = await Ticket.findById(id);
+    if (!ticket) {
+      return res.status(404).json({ error: 'Ticket not found' });
+    }
+    
+    // If assigneeId is provided, this is an admin direct assignment
+    if (assigneeId) {
+      if (req.user.role !== 'admin') {
+        return res.status(403).json({ error: 'Only admins can directly assign tickets' });
+      }
+      
+      // Check if ticket is already assigned
+      if (ticket.assignee) {
+        return res.status(400).json({ error: 'Ticket is already assigned to an agent' });
+      }
+      
+      // Direct assignment by admin
+      ticket.assignee = assigneeId;
+      ticket.status = 'in_progress';
+      ticket.lastActivity = new Date();
+      await ticket.save();
+      
+      // Log the assignment
+      await AuditLog.create({
+        ticketId: ticket._id,
+        action: 'ticket_assigned',
+        performedBy: req.user._id,
+        details: {
+          assignedAgent: assigneeId,
+          previousStatus: ticket.status
+        }
+      });
+      
+      return res.json({ message: 'Ticket assigned successfully', ticket });
+    }
+    
+    // Agent requesting assignment
+    if (req.user.role !== 'agent') {
+      return res.status(403).json({ error: 'Only agents can request ticket assignment' });
+    }
+    
+    try {
+      // Use the new validation logic
+      await ticket.requestAssignment(req.user._id);
+      
+      // Log the assignment request
+      await AuditLog.create({
+        ticketId: ticket._id,
+        action: 'assignment_requested',
+        performedBy: req.user._id,
+        details: {
+          requestedAgent: req.user._id
+        }
+      });
+      
+      res.json({ 
+        message: 'Assignment request submitted successfully', 
+        ticket 
+      });
+    } catch (error) {
+      res.status(400).json({ error: error.message });
+    }
+  })
+);
+
+// Approve assignment request (admin only)
+router.post('/:id/assign/approve',
+  authenticateToken,
+  requireAgent,
+  asyncHandler(async (req, res) => {
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Only admins can approve assignment requests' });
+    }
+    
+    const { adminNotes } = req.body;
     const ticket = await Ticket.findById(req.params.id);
     
     if (!ticket) {
       return res.status(404).json({ error: 'Ticket not found' });
     }
     
-    const oldAssignee = ticket.assignee;
-    
-    if (assigneeId) {
-      // Assign to specific agent
-      await ticket.assignTo(assigneeId);
-    } else {
-      // Unassign
-      ticket.assignee = null;
-      await ticket.save();
+    if (!ticket.pendingAssignment || ticket.pendingAssignment.status !== 'pending') {
+      return res.status(400).json({ error: 'No pending assignment request found' });
     }
     
-    // Log assignment change
-    await AuditLog.logAction({
-      ticketId: ticket._id,
-      traceId: `assign-${Date.now()}`,
-      actor: req.user.role,
-      actorId: req.user._id,
-      action: assigneeId ? 'assigned' : 'unassigned',
-      description: assigneeId ? 
-        `Ticket assigned to agent` : 
-        'Ticket unassigned',
-      meta: { 
-        oldAssignee: oldAssignee?.toString(),
-        newAssignee: assigneeId 
-      }
-    });
+    try {
+      console.log('Approving assignment for ticket:', req.params.id);
+      console.log('Current pendingAssignment:', ticket.pendingAssignment);
+      
+      await ticket.approveAssignment(adminNotes);
+      
+      console.log('Assignment approved successfully');
+      
+      // Log approval
+      await AuditLog.logAction({
+        ticketId: ticket._id,
+        traceId: `assign-approve-${Date.now()}`,
+        actor: 'admin',
+        actorId: req.user._id,
+        action: 'assignment_approved',
+        description: `Assignment request approved by ${req.user.name}`,
+        meta: { 
+          approvedAgent: ticket.assignee ? 
+            (typeof ticket.assignee === 'object' ? 
+              ticket.assignee._id || ticket.assignee.toString() : 
+              ticket.assignee.toString()) : 'Unknown',
+          adminNotes
+        }
+      });
+      
+      console.log('Audit log created successfully');
+      
+      await ticket.populate(['createdBy', 'assignee', 'pendingAssignment.requestedBy'], 'name email');
+      
+      console.log('Ticket populated successfully');
+      
+      res.json({
+        message: 'Assignment request approved',
+        ticket
+      });
+    } catch (error) {
+      console.error('Error approving assignment:', error);
+      console.error('Error stack:', error.stack);
+      res.status(500).json({ error: 'Failed to approve assignment', details: error.message });
+    }
+  })
+);
+
+// Reject assignment request (admin only)
+router.post('/:id/assign/reject',
+  authenticateToken,
+  requireAgent,
+  asyncHandler(async (req, res) => {
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Only admins can reject assignment requests' });
+    }
     
-    await ticket.populate(['createdBy', 'assignee'], 'name email');
+    const { adminNotes } = req.body;
+    const ticket = await Ticket.findById(req.params.id);
     
-    res.json({
-      message: 'Ticket assignment updated',
-      ticket
-    });
+    if (!ticket) {
+      return res.status(404).json({ error: 'Ticket not found' });
+    }
+    
+    if (!ticket.pendingAssignment || ticket.pendingAssignment.status !== 'pending') {
+      return res.status(400).json({ error: 'No pending assignment request found' });
+    }
+    
+    try {
+      console.log('Rejecting assignment for ticket:', req.params.id);
+      console.log('Current pendingAssignment:', ticket.pendingAssignment);
+      
+      await ticket.rejectAssignment(adminNotes);
+      
+      console.log('Assignment rejected successfully');
+      
+      // Log rejection
+      await AuditLog.logAction({
+        ticketId: ticket._id,
+        traceId: `assign-reject-${Date.now()}`,
+        actor: 'admin',
+        actorId: req.user._id,
+        action: 'assignment_rejected',
+        description: `Assignment request rejected by ${req.user.name}`,
+        meta: { 
+          rejectedAgent: ticket.pendingAssignment.requestedBy ? 
+            (typeof ticket.pendingAssignment.requestedBy === 'object' ? 
+              ticket.pendingAssignment.requestedBy._id || ticket.pendingAssignment.requestedBy.toString() : 
+              ticket.pendingAssignment.requestedBy.toString()) : 'Unknown',
+          adminNotes
+        }
+      });
+      
+      console.log('Audit log created successfully');
+      
+      await ticket.populate(['createdBy', 'assignee', 'pendingAssignment.requestedBy'], 'name email');
+      
+      console.log('Ticket populated successfully');
+      
+      res.json({
+        message: 'Assignment request rejected',
+        ticket
+      });
+    } catch (error) {
+      console.error('Error rejecting assignment:', error);
+      console.error('Error stack:', error.stack);
+      res.status(500).json({ error: 'Failed to reject assignment', details: error.message });
+    }
   })
 );
 
@@ -431,6 +650,7 @@ router.get('/meta/stats',
     } else if (req.user.role === 'agent') {
       matchQuery.assignee = req.user._id;
     }
+    // Admins see all tickets (no filter)
     
     const stats = await Ticket.aggregate([
       { $match: matchQuery },
@@ -460,11 +680,46 @@ router.get('/meta/stats',
       status: { $nin: ['resolved', 'closed'] }
     });
     
+    // Calculate resolved today for admins and agents
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const resolvedToday = await Ticket.countDocuments({
+      ...matchQuery,
+      resolvedAt: { $gte: today },
+      status: { $in: ['resolved', 'closed'] }
+    });
+    
+    // Additional stats for admin panel
+    const openTickets = await Ticket.countDocuments({
+      ...matchQuery,
+      status: 'open'
+    });
+    
+    const inProgressTickets = await Ticket.countDocuments({
+      ...matchQuery,
+      status: { $in: ['in_progress', 'waiting_human'] }
+    });
+    
+    const resolvedTickets = await Ticket.countDocuments({
+      ...matchQuery,
+      status: { $in: ['resolved', 'closed'] }
+    });
+    
+    // Count pending assignments
+    const pendingAssignments = await Ticket.countDocuments({
+      'pendingAssignment.status': 'pending'
+    });
+    
     res.json({
       statusStats: stats,
       categoryStats,
       overdueTickets,
-      totalTickets: await Ticket.countDocuments(matchQuery)
+      resolvedToday,
+      totalTickets: await Ticket.countDocuments(matchQuery),
+      openTickets,
+      inProgressTickets,
+      resolvedTickets,
+      pendingAssignments
     });
   })
 );
@@ -476,6 +731,39 @@ router.get('/meta/overdue',
   asyncHandler(async (req, res) => {
     const overdueTickets = await Ticket.getOverdueTickets();
     res.json({ overdueTickets });
+  })
+);
+
+// Check if agent can request assignment to a ticket
+router.get('/:id/can-request-assignment',
+  authenticateToken,
+  asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    
+    if (req.user.role !== 'agent') {
+      return res.status(403).json({ error: 'Only agents can check assignment availability' });
+    }
+    
+    const ticket = await Ticket.findById(id);
+    if (!ticket) {
+      return res.status(404).json({ error: 'Ticket not found' });
+    }
+    
+    const canRequest = ticket.canRequestAssignment(req.user._id);
+    
+    res.json({
+      canRequest: canRequest.canRequest,
+      reason: canRequest.reason || null,
+      ticket: {
+        id: ticket._id,
+        title: ticket.title,
+        status: ticket.status,
+        priority: ticket.priority,
+        category: ticket.category,
+        assignee: ticket.assignee,
+        pendingAssignment: ticket.pendingAssignment
+      }
+    });
   })
 );
 

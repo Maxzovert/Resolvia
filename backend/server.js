@@ -12,13 +12,13 @@ import ticketRoutes from './routes/tickets.js';
 import agentRoutes from './routes/agent.js';
 import configRoutes from './routes/config.js';
 import auditRoutes from './routes/audit.js';
+import adminRoutes from './routes/admin.js';
 
 // Import middleware
 import { errorHandler } from './middleware/errorHandler.js';
 import { authenticateToken } from './middleware/auth.js';
 
-// Load environment setup for development
-import './env-setup.js';
+// Load environment variables
 dotenv.config();
 
 const app = express();
@@ -61,6 +61,7 @@ app.use('/api/tickets', ticketRoutes);
 app.use('/api/agent', agentRoutes);
 app.use('/api/config', configRoutes);
 app.use('/api/audit', auditRoutes);
+app.use('/api/admin', adminRoutes);
 
 // Error handling middleware
 app.use(errorHandler);

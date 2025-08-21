@@ -4,16 +4,17 @@ import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
 import { Textarea } from '../components/ui/textarea';
-import { Select } from '../components/ui/select';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import api from '../lib/api';
+import { useAuth } from '../contexts/AuthContext';
 
 interface Ticket {
   _id: string;
   title: string;
   description: string;
-  status: 'open' | 'triaged' | 'waiting_human' | 'in_progress' | 'resolved' | 'closed';
+  category: 'billing' | 'tech' | 'shipping' | 'other';
   priority: 'low' | 'medium' | 'high' | 'urgent';
-  category: string;
+  status: 'open' | 'triaged' | 'waiting_human' | 'in_progress' | 'resolved' | 'closed';
   createdAt: string;
   updatedAt: string;
   createdBy: {
@@ -25,6 +26,16 @@ interface Ticket {
     _id: string;
     name: string;
     email: string;
+  };
+  pendingAssignment?: {
+    requestedBy: {
+      _id: string;
+      name: string;
+      email: string;
+    };
+    requestedAt: string;
+    status: 'pending' | 'approved' | 'rejected';
+    adminNotes?: string;
   };
   replies: Array<{
     _id: string;
@@ -43,6 +54,7 @@ interface Ticket {
 const TicketDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { user } = useAuth();
   
   console.log('TicketDetail rendered with id:', id); // Debug log
   console.log('Current URL:', window.location.href); // Debug log
@@ -53,6 +65,7 @@ const TicketDetail: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [newComment, setNewComment] = useState('');
   const [updating, setUpdating] = useState(false);
+  const [updateMessage, setUpdateMessage] = useState<string | null>(null);
 
   useEffect(() => {
     console.log('useEffect triggered with id:', id); // Debug log
@@ -87,10 +100,48 @@ const TicketDetail: React.FC = () => {
   const updateTicketStatus = async (newStatus: string) => {
     try {
       setUpdating(true);
+      setUpdateMessage(null);
       await api.put(`/tickets/${id}`, { status: newStatus });
       setTicket(prev => prev ? { ...prev, status: newStatus as any } : null);
-    } catch (err) {
+      setUpdateMessage(`Status updated to ${newStatus}`);
+      console.log('Ticket status updated successfully to:', newStatus);
+      
+      // Clear success message after 3 seconds
+      setTimeout(() => setUpdateMessage(null), 3000);
+    } catch (err: any) {
       console.error('Error updating ticket status:', err);
+      const errorMessage = err.response?.data?.error || 'Failed to update status';
+      setUpdateMessage(errorMessage);
+      // Revert the change on error
+      fetchTicket();
+      
+      // Clear error message after 5 seconds for better readability
+      setTimeout(() => setUpdateMessage(null), 5000);
+    } finally {
+      setUpdating(false);
+    }
+  };
+
+  const updateTicketPriority = async (newPriority: string) => {
+    try {
+      setUpdating(true);
+      setUpdateMessage(null);
+      await api.put(`/tickets/${id}`, { priority: newPriority });
+      setTicket(prev => prev ? { ...prev, priority: newPriority as any } : null);
+      setUpdateMessage(`Priority updated to ${newPriority}`);
+      console.log('Ticket priority updated successfully to:', newPriority);
+      
+      // Clear success message after 3 seconds
+      setTimeout(() => setUpdateMessage(null), 3000);
+    } catch (err: any) {
+      console.error('Error updating ticket priority:', err);
+      const errorMessage = err.response?.data?.error || 'Failed to update priority';
+      setUpdateMessage(errorMessage);
+      // Revert the change on error
+      fetchTicket();
+      
+      // Clear error message after 5 seconds for better readability
+      setTimeout(() => setUpdateMessage(null), 5000);
     } finally {
       setUpdating(false);
     }
@@ -110,6 +161,56 @@ const TicketDetail: React.FC = () => {
       setNewComment('');
     } catch (err) {
       console.error('Error adding comment:', err);
+    }
+  };
+
+  const requestAssignment = async () => {
+    try {
+      await api.post(`/tickets/${id}/assign`, { assigneeId: null });
+      setUpdateMessage('Assignment request submitted successfully');
+      fetchTicket();
+      setTimeout(() => setUpdateMessage(null), 5000);
+    } catch (err: any) {
+      console.error('Error requesting assignment:', err);
+      const errorMessage = err.response?.data?.error || 'Failed to request assignment';
+      setUpdateMessage(errorMessage);
+      setTimeout(() => setUpdateMessage(null), 5000);
+    }
+  };
+
+  const approveAssignment = async () => {
+    try {
+      setUpdating(true);
+      setUpdateMessage(null);
+      await api.post(`/tickets/${id}/assign/approve`, { adminNotes: '' });
+      setUpdateMessage('Assignment request approved successfully');
+      fetchTicket();
+      setTimeout(() => setUpdateMessage(null), 5000);
+    } catch (err: any) {
+      console.error('Error approving assignment:', err);
+      const errorMessage = err.response?.data?.error || 'Failed to approve assignment';
+      setUpdateMessage(`Error: ${errorMessage}`);
+      setTimeout(() => setUpdateMessage(null), 5000);
+    } finally {
+      setUpdating(false);
+    }
+  };
+
+  const rejectAssignment = async () => {
+    try {
+      setUpdating(true);
+      setUpdateMessage(null);
+      await api.post(`/tickets/${id}/assign/reject`, { adminNotes: '' });
+      setUpdateMessage('Assignment request rejected successfully');
+      fetchTicket();
+      setTimeout(() => setUpdateMessage(null), 5000);
+    } catch (err: any) {
+      console.error('Error rejecting assignment:', err);
+      const errorMessage = err.response?.data?.error || 'Failed to reject assignment';
+      setUpdateMessage(`Error: ${errorMessage}`);
+      setTimeout(() => setUpdateMessage(null), 5000);
+    } finally {
+      setUpdating(false);
     }
   };
 
@@ -152,7 +253,7 @@ const TicketDetail: React.FC = () => {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="max-w-4xl mx-auto p-6">
       <div className="flex items-center justify-between">
         <Button 
           variant="outline" 
@@ -177,20 +278,64 @@ const TicketDetail: React.FC = () => {
                 </Badge>
               </div>
             </div>
-            <div className="flex gap-2">
-              <Select
-                value={ticket.status}
-                onValueChange={updateTicketStatus}
-                disabled={updating}
-              >
-                <option value="open">Open</option>
-                <option value="triaged">Triaged</option>
-                <option value="waiting_human">Waiting Human</option>
-                <option value="in_progress">In Progress</option>
-                <option value="resolved">Resolved</option>
-                <option value="closed">Closed</option>
-              </Select>
-            </div>
+            {/* Only show status and priority controls for agents and admins */}
+            {(user?.role === 'agent' || user?.role === 'admin') ? (
+              <div className="flex gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-600 mb-1">Status</label>
+                  <Select
+                    value={ticket.status}
+                    onValueChange={updateTicketStatus}
+                    disabled={updating}
+                  >
+                    <SelectTrigger className="w-[180px]">
+                      <SelectValue placeholder="Select a status" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="open">Open</SelectItem>
+                      <SelectItem value="triaged">Triaged</SelectItem>
+                      <SelectItem value="waiting_human">Waiting Human</SelectItem>
+                      <SelectItem value="in_progress">In Progress</SelectItem>
+                      <SelectItem value="resolved">Resolved</SelectItem>
+                      <SelectItem value="closed">Closed</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-600 mb-1">Priority</label>
+                  <Select
+                    value={ticket.priority}
+                    onValueChange={updateTicketPriority}
+                    disabled={updating}
+                  >
+                    <SelectTrigger className="w-[180px]">
+                      <SelectValue placeholder="Select a priority" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="low">Low</SelectItem>
+                      <SelectItem value="medium">Medium</SelectItem>
+                      <SelectItem value="high">High</SelectItem>
+                      <SelectItem value="urgent">Urgent</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            ) : (
+              <div className="text-sm text-gray-600 bg-gray-50 p-3 rounded-md">
+                <p>Status and priority updates are managed by support agents.</p>
+                <p>Current status: <span className="font-medium">{ticket.status}</span> | Priority: <span className="font-medium">{ticket.priority}</span></p>
+              </div>
+            )}
+            {updateMessage && (
+              <div className={`text-sm ${updateMessage.includes('Failed') ? 'text-red-600' : 'text-green-600'}`}>
+                {updateMessage}
+              </div>
+            )}
+            {updating && (
+              <div className="text-sm text-blue-600">
+                Updating...
+              </div>
+            )}
           </div>
         </CardHeader>
         <CardContent>
@@ -209,7 +354,7 @@ const TicketDetail: React.FC = () => {
                 <h4 className="font-medium text-gray-600">Category</h4>
                 <p>{ticket.category}</p>
               </div>
-              {ticket.assignee && (
+              {ticket.assignee && (user?.role === 'agent' || user?.role === 'admin') && (
                 <div>
                   <h4 className="font-medium text-gray-600">Assigned To</h4>
                   <p>{ticket.assignee.name}</p>
@@ -228,6 +373,99 @@ const TicketDetail: React.FC = () => {
           </div>
         </CardContent>
       </Card>
+
+      {/* Assignment Section - Only visible to agents and admins */}
+      {(user?.role === 'agent' || user?.role === 'admin') && (
+        <div className="bg-white rounded-lg shadow p-6 mb-6">
+          <h3 className="text-lg font-semibold mb-4">Assignment</h3>
+        
+          {ticket.assignee ? (
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-gray-600">Currently assigned to:</p>
+                <p className="font-medium">{ticket.assignee.name} ({ticket.assignee.email})</p>
+              </div>
+              {user?.role === 'admin' && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {/* TODO: Implement reassignment */}}
+                >
+                  Reassign
+                </Button>
+              )}
+            </div>
+          ) : ticket.pendingAssignment ? (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-gray-600">Assignment request:</p>
+                  <p className="font-medium">
+                    {ticket.pendingAssignment?.requestedBy?.name || 'Unknown Agent'} ({ticket.pendingAssignment?.requestedBy?.email || 'No email'})
+                  </p>
+                  <p className="text-xs text-gray-500">
+                    Requested: {new Date(ticket.pendingAssignment?.requestedAt || '').toLocaleDateString()}
+                  </p>
+                  <Badge className={`mt-2 ${
+                    ticket.pendingAssignment?.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
+                    ticket.pendingAssignment?.status === 'approved' ? 'bg-green-100 text-green-800' :
+                    'bg-red-100 text-red-800'
+                  }`}>
+                    {ticket.pendingAssignment?.status === 'pending' && '⏳ Pending Approval'}
+                    {ticket.pendingAssignment?.status === 'approved' && '✅ Approved'}
+                    {ticket.pendingAssignment?.status === 'rejected' && '❌ Rejected'}
+                  </Badge>
+                </div>
+                
+                {user?.role === 'admin' && ticket.pendingAssignment?.status === 'pending' && (
+                  <div className="flex gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="bg-green-50 text-green-700 border-green-200 hover:bg-green-100"
+                      onClick={approveAssignment}
+                      disabled={updating}
+                    >
+                      {updating ? 'Approving...' : 'Approve'}
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="bg-red-50 text-red-700 border-red-200 hover:bg-red-100"
+                      onClick={rejectAssignment}
+                      disabled={updating}
+                    >
+                      {updating ? 'Rejecting...' : 'Reject'}
+                    </Button>
+                  </div>
+                )}
+              </div>
+              
+              {ticket.pendingAssignment?.adminNotes && (
+                <div className="text-sm text-gray-600 bg-gray-50 p-3 rounded">
+                  <strong>Admin Notes:</strong> {ticket.pendingAssignment?.adminNotes}
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-sm text-gray-600">No agent assigned</p>
+                <p className="text-xs text-gray-500">This ticket is available for assignment</p>
+              </div>
+              {user?.role === 'agent' && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={requestAssignment}
+                >
+                  Request Assignment
+                </Button>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Comments */}
       <Card>

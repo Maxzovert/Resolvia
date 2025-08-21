@@ -28,11 +28,15 @@ router.post('/register',
       return res.status(400).json({ error: 'User already exists with this email' });
     }
     
+    // Hash password
+    const saltRounds = 10;
+    const hashedPassword = await bcrypt.hash(password, saltRounds);
+    
     // Create new user
     const user = new User({
       name,
       email,
-      passwordHash: password, // Will be hashed by pre-save middleware
+      passwordHash: hashedPassword,
       role
     });
     
@@ -215,8 +219,12 @@ router.put('/change-password',
       return res.status(400).json({ error: 'Current password is incorrect' });
     }
     
+    // Hash new password
+    const saltRounds = 10;
+    const hashedNewPassword = await bcrypt.hash(newPassword, saltRounds);
+    
     // Update password
-    user.passwordHash = newPassword; // Will be hashed by pre-save middleware
+    user.passwordHash = hashedNewPassword;
     await user.save();
     
     res.json({ message: 'Password changed successfully' });

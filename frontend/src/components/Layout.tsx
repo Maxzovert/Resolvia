@@ -8,10 +8,10 @@ import {
   BookOpen, 
   Settings, 
   LogOut, 
-  User,
   Brain,
   Menu,
-  X
+  X,
+  Users
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -24,7 +24,9 @@ export default function Layout() {
     { name: 'Dashboard', href: '/dashboard', icon: Home, roles: ['user', 'agent', 'admin'] },
     { name: 'Tickets', href: '/tickets', icon: Ticket, roles: ['user', 'agent', 'admin'] },
     { name: 'Knowledge Base', href: '/kb', icon: BookOpen, roles: ['user', 'agent', 'admin'] },
-    { name: 'Agent Dashboard', href: '/agent', icon: Brain, roles: ['agent', 'admin'] },
+    { name: 'Agent Dashboard', href: '/agent', icon: Brain, roles: ['agent'] },
+    { name: 'Admin Panel', href: '/admin', icon: Brain, roles: ['admin'] },
+    { name: 'User Management', href: '/admin/users', icon: Users, roles: ['admin'] },
     { name: 'Settings', href: '/settings', icon: Settings, roles: ['admin'] },
   ]
 

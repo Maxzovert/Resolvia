@@ -122,7 +122,9 @@ export const agentFeedbackSchema = Joi.object({
 export const searchSchema = Joi.object({
   query: Joi.string().max(200),
   category: Joi.string().valid('billing', 'tech', 'shipping', 'other'),
-  status: Joi.string(),
+  status: Joi.string().valid('open', 'triaged', 'waiting_human', 'in_progress', 'resolved', 'closed'),
+  unassigned: Joi.string().valid('true', 'false').default('false'),
+  myRequests: Joi.string().valid('true', 'false').default('false'),
   limit: Joi.number().min(1).max(50).default(10),
   page: Joi.number().min(1).default(1)
 });

@@ -14,6 +14,8 @@ import ArticleDetail from './pages/ArticleDetail'
 import CreateArticle from './pages/CreateArticle'
 import Settings from './pages/Settings'
 import AgentDashboard from './pages/AgentDashboard'
+import AdminPanel from './pages/AdminPanel'
+import UserManagement from './components/UserManagement'
 
 function App() {
   return (
@@ -48,13 +50,23 @@ function App() {
             } />
             <Route path="kb/:id" element={<ArticleDetail />} />
             <Route path="agent" element={
-              <ProtectedRoute requiredRole={['agent', 'admin']}>
+              <ProtectedRoute requiredRole="agent">
                 <AgentDashboard />
               </ProtectedRoute>
             } />
             <Route path="settings" element={
               <ProtectedRoute requiredRole="admin">
                 <Settings />
+              </ProtectedRoute>
+            } />
+            <Route path="admin" element={
+              <ProtectedRoute requiredRole="admin">
+                <AdminPanel />
+              </ProtectedRoute>
+            } />
+            <Route path="admin/users" element={
+              <ProtectedRoute requiredRole="admin">
+                <UserManagement />
               </ProtectedRoute>
             } />
           </Route>

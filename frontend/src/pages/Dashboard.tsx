@@ -7,19 +7,23 @@ import { Badge } from '@/components/ui/badge'
 import { ticketsAPI, kbAPI, agentAPI } from '@/lib/api'
 import { formatRelativeTime, getStatusColor } from '@/lib/utils'
 import { Plus, Ticket, BookOpen, Brain, TrendingUp } from 'lucide-react'
+import api from '@/lib/api';
 
 interface Stats {
   totalTickets: number
   statusStats: Array<{ _id: string; count: number }>
   overdueTickets?: number
+  resolvedToday?: number
 }
 
 interface RecentTicket {
   _id: string
   title: string
   status: string
+  priority: string
   createdAt: string
-  createdBy: { name: string }
+  createdBy: { name: string; email: string }
+  assignee?: { name: string; email: string }
 }
 
 export default function Dashboard() {
@@ -27,10 +31,14 @@ export default function Dashboard() {
   const [stats, setStats] = useState<Stats | null>(null)
   const [recentTickets, setRecentTickets] = useState<RecentTicket[]>([])
   const [loading, setLoading] = useState(true)
+  const [pendingAssignments, setPendingAssignments] = useState<any[]>([]);
 
   useEffect(() => {
     loadDashboardData()
-  }, [])
+    if (user?.role === 'admin') {
+      fetchPendingAssignments();
+    }
+  }, [user])
 
   const loadDashboardData = async () => {
     try {
@@ -47,6 +55,55 @@ export default function Dashboard() {
       setLoading(false)
     }
   }
+
+  const fetchPendingAssignments = async () => {
+    try {
+      const response = await api.get('/tickets/pending-assignments');
+      console.log('Pending assignments response:', response.data);
+      
+      if (response.data.pendingAssignments && response.data.pendingAssignments.length > 0) {
+        console.log('First pending assignment structure:', response.data.pendingAssignments[0]);
+        console.log('pendingAssignment field:', response.data.pendingAssignments[0].pendingAssignment);
+        console.log('requestedBy field:', response.data.pendingAssignments[0].pendingAssignment?.requestedBy);
+        
+        // Validate data structure
+        const validAssignments = response.data.pendingAssignments.filter((ticket: any) => {
+          if (!ticket.pendingAssignment || !ticket.pendingAssignment.requestedBy) {
+            console.warn('Invalid ticket structure:', ticket);
+            return false;
+          }
+          return true;
+        });
+        
+        console.log('Valid assignments after filtering:', validAssignments.length);
+        setPendingAssignments(validAssignments);
+      } else {
+        console.log('No pending assignments found');
+        setPendingAssignments([]);
+      }
+    } catch (error) {
+      console.error('Error fetching pending assignments:', error);
+      setPendingAssignments([]);
+    }
+  };
+
+  const approveAssignment = async (ticketId: string) => {
+    try {
+      await api.post(`/tickets/${ticketId}/assign/approve`, { adminNotes: '' });
+      fetchPendingAssignments();
+    } catch (err) {
+      console.error('Error approving assignment:', err);
+    }
+  };
+
+  const rejectAssignment = async (ticketId: string) => {
+    try {
+      await api.post(`/tickets/${ticketId}/assign/reject`, { adminNotes: '' });
+      fetchPendingAssignments();
+    } catch (err) {
+      console.error('Error rejecting assignment:', err);
+    }
+  };
 
   const getGreeting = () => {
     const hour = new Date().getHours()
@@ -76,11 +133,21 @@ export default function Dashboard() {
       color: 'bg-green-500'
     })
 
-    if (user?.role === 'agent' || user?.role === 'admin') {
+    if (user?.role === 'agent') {
       actions.push({
         title: 'Agent Dashboard',
         description: 'Review AI suggestions and manage tickets',
         href: '/agent',
+        icon: Brain,
+        color: 'bg-purple-500'
+      })
+    }
+
+    if (user?.role === 'admin') {
+      actions.push({
+        title: 'Admin Panel',
+        description: 'Complete system overview and ticket management',
+        href: '/admin',
         icon: Brain,
         color: 'bg-purple-500'
       })
@@ -243,6 +310,23 @@ export default function Dashboard() {
           </Card>
         )}
       </div>
+
+      {/* Admin Section - Pending Assignment Requests */}
+      {user?.role === 'admin' && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Pending Assignment Requests</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="text-center py-4">
+              <p className="text-gray-500 mb-4">Use the Admin Panel for comprehensive ticket management</p>
+              <Link to="/admin">
+                <Button>Go to Admin Panel</Button>
+              </Link>
+            </div>
+          </CardContent>
+        </Card>
+      )}
     </div>
   )
 }

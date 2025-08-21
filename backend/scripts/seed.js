@@ -4,6 +4,7 @@ import Article from '../models/Article.js';
 import Ticket from '../models/Ticket.js';
 import Config from '../models/Config.js';
 import dotenv from 'dotenv';
+import bcrypt from 'bcryptjs';
 
 // Load environment setup
 import '../env-setup.js';
@@ -22,33 +23,40 @@ const seedData = async () => {
     await Config.deleteMany({});
     console.log('Cleared existing data');
 
+    // Hash passwords for demo users
+    const saltRounds = 10;
+    const adminPasswordHash = await bcrypt.hash('admin123', saltRounds);
+    const agentPasswordHash = await bcrypt.hash('agent123', saltRounds);
+    const userPasswordHash = await bcrypt.hash('user123', saltRounds);
+    const janePasswordHash = await bcrypt.hash('password123', saltRounds);
+
     // Create demo users
     const users = await User.create([
       {
         name: 'Admin User',
         email: 'admin@resolvia.com',
-        passwordHash: 'admin123', // Will be hashed by pre-save middleware
+        passwordHash: adminPasswordHash,
         role: 'admin',
         isActive: true
       },
       {
         name: 'Agent Smith',
         email: 'agent@resolvia.com',
-        passwordHash: 'agent123', // Will be hashed by pre-save middleware
+        passwordHash: agentPasswordHash,
         role: 'agent',
         isActive: true
       },
       {
         name: 'John Doe',
         email: 'user@resolvia.com',
-        passwordHash: 'user123', // Will be hashed by pre-save middleware
+        passwordHash: userPasswordHash,
         role: 'user',
         isActive: true
       },
       {
         name: 'Jane Customer',
         email: 'jane@customer.com',
-        passwordHash: 'password123', // Will be hashed by pre-save middleware
+        passwordHash: janePasswordHash,
         role: 'user',
         isActive: true
       }

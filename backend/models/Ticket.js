@@ -39,6 +39,19 @@ const ticketSchema = new mongoose.Schema({
     type: mongoose.Schema.Types.ObjectId,
     ref: 'User'
   },
+  pendingAssignment: {
+    requestedBy: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User'
+    },
+    requestedAt: Date,
+    status: {
+      type: String,
+      enum: ['pending', 'approved', 'rejected'],
+      default: 'pending'
+    },
+    adminNotes: String
+  },
   agentSuggestionId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'AgentSuggestion'
@@ -165,6 +178,104 @@ ticketSchema.methods.setSLA = function(hours) {
     this.slaDeadline = new Date(baseDate.getTime() + (hours * 60 * 60 * 1000));
   }
   return this;
+};
+
+// Request assignment to this ticket
+ticketSchema.methods.requestAssignment = function(agentId) {
+  // Check if ticket is already assigned
+  if (this.assignee) {
+    throw new Error('Ticket is already assigned to an agent');
+  }
+  
+  // Check if there's already a pending assignment request
+  if (this.pendingAssignment && this.pendingAssignment.status === 'pending') {
+    throw new Error('Ticket already has a pending assignment request');
+  }
+  
+  // Check if this agent has already requested this ticket
+  if (this.pendingAssignment && 
+      this.pendingAssignment.requestedBy && 
+      this.pendingAssignment.requestedBy.toString() === agentId.toString()) {
+    throw new Error('You have already requested assignment for this ticket');
+  }
+  
+  // Create new assignment request
+  this.pendingAssignment = {
+    requestedBy: agentId,
+    requestedAt: new Date(),
+    status: 'pending'
+  };
+  
+  return this.save();
+};
+
+// Approve assignment request
+ticketSchema.methods.approveAssignment = function(adminNotes) {
+  if (!this.pendingAssignment || this.pendingAssignment.status !== 'pending') {
+    throw new Error('No pending assignment request to approve');
+  }
+  
+  // Assign the ticket to the requesting agent
+  this.assignee = this.pendingAssignment.requestedBy;
+  
+  // Clear the pending assignment (approve it)
+  this.pendingAssignment.status = 'approved';
+  if (adminNotes) {
+    this.pendingAssignment.adminNotes = adminNotes;
+  }
+  
+  // Update status to in_progress if it's triaged or waiting_human
+  if (this.status === 'triaged' || this.status === 'waiting_human') {
+    this.status = 'in_progress';
+  }
+  
+  // Update last activity
+  this.lastActivity = new Date();
+  
+  return this.save();
+};
+
+// Reject assignment request
+ticketSchema.methods.rejectAssignment = function(adminNotes) {
+  if (!this.pendingAssignment || this.pendingAssignment.status !== 'pending') {
+    throw new Error('No pending assignment request to reject');
+  }
+  
+  // Mark the assignment as rejected
+  this.pendingAssignment.status = 'rejected';
+  if (adminNotes) {
+    this.pendingAssignment.adminNotes = adminNotes;
+  }
+  
+  // Clear the pending assignment so other agents can request
+  this.pendingAssignment = undefined;
+  
+  // Update last activity
+  this.lastActivity = new Date();
+  
+  return this.save();
+};
+
+// Check if an agent can request assignment to this ticket
+ticketSchema.methods.canRequestAssignment = function(agentId) {
+  // Ticket must not be already assigned
+  if (this.assignee) {
+    return { canRequest: false, reason: 'Ticket is already assigned to an agent' };
+  }
+  
+  // Ticket must not have a pending assignment request
+  if (this.pendingAssignment && this.pendingAssignment.status === 'pending') {
+    return { canRequest: false, reason: 'Ticket already has a pending assignment request' };
+  }
+  
+  // Agent must not have already requested this ticket
+  if (this.pendingAssignment && 
+      this.pendingAssignment.requestedBy && 
+      this.pendingAssignment.requestedBy.toString() === agentId.toString()) {
+    return { canRequest: false, reason: 'You have already requested assignment for this ticket' };
+  }
+  
+  return { canRequest: true };
 };
 
 // Static methods

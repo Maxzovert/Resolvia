@@ -8,13 +8,30 @@ import api from '../lib/api';
 interface TicketSummary {
   _id: string;
   title: string;
+  description: string;
   priority: 'low' | 'medium' | 'high' | 'urgent';
   status: 'open' | 'triaged' | 'waiting_human' | 'in_progress' | 'resolved' | 'closed';
+  category: string;
   createdAt: string;
   createdBy: {
     _id: string;
     name: string;
     email: string;
+  };
+  assignee?: {
+    _id: string;
+    name: string;
+    email: string;
+  };
+  pendingAssignment?: {
+    requestedBy: {
+      _id: string;
+      name: string;
+      email: string;
+    };
+    requestedAt: string;
+    status: 'pending' | 'approved' | 'rejected';
+    adminNotes?: string;
   };
 }
 
@@ -36,27 +53,62 @@ interface Suggestion {
 
 const AgentDashboard: React.FC = () => {
   const [assignedTickets, setAssignedTickets] = useState<TicketSummary[]>([]);
+  const [unassignedTickets, setUnassignedTickets] = useState<TicketSummary[]>([]);
+  const [pendingRequests, setPendingRequests] = useState<TicketSummary[]>([]);
   const [stats, setStats] = useState<AgentStats | null>(null);
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [assignmentStatus, setAssignmentStatus] = useState<{[key: string]: {canRequest: boolean, reason?: string}}>({});
 
   useEffect(() => {
     fetchDashboardData();
   }, []);
 
+  // Check assignment availability for each unassigned ticket
+  useEffect(() => {
+    if (unassignedTickets.length > 0) {
+      unassignedTickets.forEach(ticket => {
+        checkAssignmentAvailability(ticket._id);
+      });
+    }
+  }, [unassignedTickets]);
+
+  const checkAssignmentAvailability = async (ticketId: string) => {
+    try {
+      const response = await api.get(`/tickets/${ticketId}/can-request-assignment`);
+      setAssignmentStatus(prev => ({
+        ...prev,
+        [ticketId]: response.data
+      }));
+    } catch (error) {
+      console.error('Error checking assignment availability:', error);
+    }
+  };
+
   const fetchDashboardData = async () => {
     try {
       setLoading(true);
-      const [ticketsResponse, statsResponse, suggestionsResponse] = await Promise.all([
+      const [ticketsResponse, unassignedResponse, statsResponse, suggestionsResponse] = await Promise.all([
         api.get('/agent/tickets'),
+        api.get('/tickets?unassigned=true'),
         api.get('/agent/stats'),
         api.get('/agent/suggestions')
       ]);
       
       setAssignedTickets(ticketsResponse.data);
+      setUnassignedTickets(unassignedResponse.data.tickets || []);
       setStats(statsResponse.data);
       setSuggestions(suggestionsResponse.data);
+      
+      // Fetch agent's own assignment requests
+      try {
+        const myRequestsResponse = await api.get('/tickets?myRequests=true');
+        setPendingRequests(myRequestsResponse.data.tickets || []);
+      } catch (err) {
+        console.error('Error fetching my requests:', err);
+        setPendingRequests([]);
+      }
     } catch (err) {
       setError('Failed to fetch dashboard data');
       console.error('Error fetching dashboard data:', err);
@@ -82,6 +134,26 @@ const AgentDashboard: React.FC = () => {
       setSuggestions(prev => prev.filter(s => s._id !== suggestionId));
     } catch (err) {
       console.error('Error dismissing suggestion:', err);
+    }
+  };
+
+  const assignTicket = async (ticketId: string) => {
+    try {
+      await api.post(`/tickets/${ticketId}/assign`, { assigneeId: null }); // Assign to self
+      // Refresh data to show updated assignments
+      fetchDashboardData();
+    } catch (err) {
+      console.error('Error assigning ticket:', err);
+    }
+  };
+
+  const requestAssignment = async (ticketId: string) => {
+    try {
+      await api.post(`/tickets/${ticketId}/assign`, { assigneeId: null });
+      // Refresh data to show updated status
+      fetchDashboardData();
+    } catch (err) {
+      console.error('Error requesting assignment:', err);
     }
   };
 
@@ -235,12 +307,12 @@ const AgentDashboard: React.FC = () => {
                         <Button
                           size="sm"
                           variant="outline"
-                          onClick={() => updateTicketStatus(ticket._id, 'in-progress')}
+                          onClick={() => updateTicketStatus(ticket._id, 'in_progress')}
                         >
                           Start
                         </Button>
                       )}
-                      {ticket.status === 'in-progress' && (
+                      {ticket.status === 'in_progress' && (
                         <Button
                           size="sm"
                           variant="outline"
@@ -256,6 +328,116 @@ const AgentDashboard: React.FC = () => {
             </div>
           </CardContent>
         </Card>
+
+        {/* Unassigned Tickets */}
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between">
+            <CardTitle>Available Tickets</CardTitle>
+            <Link to="/tickets?status=triaged">
+              <Button variant="outline" size="sm">View All</Button>
+            </Link>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-3">
+              {unassignedTickets.length === 0 ? (
+                <p className="text-gray-500 text-center py-4">No unassigned tickets available</p>
+              ) : (
+                unassignedTickets.map((ticket) => (
+                  <div key={ticket._id} className="p-4 border rounded-lg">
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <Link 
+                          to={`/tickets/${ticket._id}`}
+                          className="font-medium text-blue-600 hover:text-blue-800"
+                        >
+                          {ticket.title}
+                        </Link>
+                        <p className="text-sm text-gray-500">{ticket.description}</p>
+                        <div className="flex gap-2 mt-2">
+                          <Badge className={getStatusColor(ticket.status)}>
+                            {ticket.status}
+                          </Badge>
+                          <Badge variant="outline">{ticket.priority}</Badge>
+                          <Badge variant="outline">{ticket.category}</Badge>
+                        </div>
+                        
+                        {/* Assignment Status */}
+                        {assignmentStatus[ticket._id] && (
+                          <div className="mt-2">
+                            {assignmentStatus[ticket._id].canRequest ? (
+                              <p className="text-sm text-green-600">✅ Available for assignment</p>
+                            ) : (
+                              <p className="text-sm text-orange-600">⚠️ {assignmentStatus[ticket._id].reason}</p>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                      <div className="ml-4">
+                        {assignmentStatus[ticket._id]?.canRequest ? (
+                          <Button
+                            size="sm"
+                            onClick={() => requestAssignment(ticket._id)}
+                            className="bg-blue-600 hover:bg-blue-700"
+                          >
+                            Request Assignment
+                          </Button>
+                        ) : (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled
+                            className="text-gray-400"
+                          >
+                            {assignmentStatus[ticket._id]?.reason || 'Checking...'}
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* My Assignment Requests */}
+        {pendingRequests.length > 0 && (
+          <Card>
+            <CardHeader>
+              <CardTitle>My Assignment Requests</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-3">
+                {pendingRequests.map((ticket) => (
+                  <div key={ticket._id} className="p-3 border rounded-lg">
+                    <div className="flex items-start justify-between">
+                      <div className="flex-1">
+                        <Link 
+                          to={`/tickets/${ticket._id}`}
+                          className="font-medium text-blue-600 hover:text-blue-800"
+                        >
+                          {ticket.title}
+                        </Link>
+                        <p className="text-sm text-gray-500">
+                          Status: {ticket.pendingAssignment?.status === 'pending' ? '⏳ Pending Approval' : 
+                                   ticket.pendingAssignment?.status === 'approved' ? '✅ Approved' : '❌ Rejected'}
+                        </p>
+                        <p className="text-sm text-gray-500">
+                          Requested: {new Date(ticket.pendingAssignment?.requestedAt || '').toLocaleDateString()}
+                        </p>
+                        {ticket.pendingAssignment?.adminNotes && (
+                          <p className="text-sm text-gray-600 bg-gray-50 p-2 rounded mt-2">
+                            <strong>Admin Notes:</strong> {ticket.pendingAssignment.adminNotes}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {/* AI Suggestions */}
         <Card>

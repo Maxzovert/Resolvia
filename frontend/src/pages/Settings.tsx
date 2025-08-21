@@ -9,26 +9,34 @@ import api from '../lib/api';
 
 interface SystemConfig {
   _id: string;
+  autoCloseEnabled: boolean;
+  confidenceThreshold: number;
+  slaHours: number;
   aiModel: string;
-  autoAssignment: boolean;
-  escalationRules: {
-    highPriorityHours: number;
-    urgentPriorityMinutes: number;
-  };
+  stubMode: boolean;
+  emailNotificationsEnabled: boolean;
+  autoAssignmentEnabled: boolean;
+  maxTicketsPerAgent: number;
   businessHours: {
-    start: string;
-    end: string;
+    enabled: boolean;
     timezone: string;
+    schedule: {
+      [key: string]: { start: string; end: string };
+    };
   };
-  emailNotifications: {
-    newTicket: boolean;
-    statusUpdate: boolean;
-    assignment: boolean;
+  kbSettings: {
+    requireApproval: boolean;
+    allowUserSubmissions: boolean;
+    autoTagging: boolean;
   };
-  knowledgeBase: {
-    autoSuggest: boolean;
-    publicAccess: boolean;
+  limits: {
+    maxAttachmentSize: number;
+    maxTicketsPerUser: number;
+    rateLimitRequests: number;
+    rateLimitWindow: number;
   };
+  version: number;
+  lastUpdatedBy?: string;
 }
 
 interface User {
@@ -47,6 +55,11 @@ const Settings: React.FC = () => {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'general' | 'users' | 'notifications'>('general');
+  const [updatingUsers, setUpdatingUsers] = useState<Set<string>>(new Set());
+
+  console.log('Settings component rendered - config:', config); // Debug log
+  console.log('Settings component rendered - loading:', loading); // Debug log
+  console.log('Settings component rendered - error:', error); // Debug log
 
   useEffect(() => {
     fetchData();
@@ -59,7 +72,18 @@ const Settings: React.FC = () => {
         api.get('/config'),
         api.get('/auth/users')
       ]);
-      setConfig(configResponse.data);
+      console.log('Config response:', configResponse.data); // Debug log
+      console.log('Users response:', usersResponse.data); // Debug log
+      
+      // Extract the config object from the response
+      const configData = configResponse.data.config || configResponse.data;
+      console.log('Extracted config data:', configData); // Debug log
+      
+      // Ensure all required properties exist with defaults
+      const completeConfig = ensureCompleteConfig(configData);
+      console.log('Complete config with defaults:', completeConfig); // Debug log
+      
+      setConfig(completeConfig);
       setUsers(usersResponse.data);
     } catch (err) {
       setError('Failed to fetch settings');
@@ -69,13 +93,64 @@ const Settings: React.FC = () => {
     }
   };
 
+  // Helper function to ensure config has all required properties
+  const ensureCompleteConfig = (config: any): SystemConfig => {
+    return {
+      _id: config._id || 'config',
+      autoCloseEnabled: config.autoCloseEnabled || false,
+      confidenceThreshold: config.confidenceThreshold || 0.7,
+      slaHours: config.slaHours || 24,
+      aiModel: config.aiModel || 'gemini-pro',
+      stubMode: config.stubMode || false,
+      emailNotificationsEnabled: config.emailNotificationsEnabled || true,
+      autoAssignmentEnabled: config.autoAssignmentEnabled || false,
+      maxTicketsPerAgent: config.maxTicketsPerAgent || 10,
+      businessHours: {
+        enabled: config.businessHours?.enabled || true,
+        timezone: config.businessHours?.timezone || 'UTC',
+        schedule: config.businessHours?.schedule || {
+          'Monday': { start: '09:00', end: '17:00' },
+          'Tuesday': { start: '09:00', end: '17:00' },
+          'Wednesday': { start: '09:00', end: '17:00' },
+          'Thursday': { start: '09:00', end: '17:00' },
+          'Friday': { start: '09:00', end: '17:00' },
+          'Saturday': { start: '09:00', end: '17:00' },
+          'Sunday': { start: '09:00', end: '17:00' },
+        },
+        ...config.businessHours
+      },
+      kbSettings: {
+        requireApproval: config.kbSettings?.requireApproval || false,
+        allowUserSubmissions: config.kbSettings?.allowUserSubmissions || false,
+        autoTagging: config.kbSettings?.autoTagging || false,
+        ...config.kbSettings
+      },
+      limits: {
+        maxAttachmentSize: config.limits?.maxAttachmentSize || 1024 * 1024, // 1MB
+        maxTicketsPerUser: config.limits?.maxTicketsPerUser || 10,
+        rateLimitRequests: config.limits?.rateLimitRequests || 100,
+        rateLimitWindow: config.limits?.rateLimitWindow || 60, // seconds
+        ...config.limits
+      },
+      version: config.version || 1,
+      lastUpdatedBy: config.lastUpdatedBy,
+    };
+  };
+
   const updateConfig = async (updates: Partial<SystemConfig>) => {
     try {
       setSaving(true);
       const response = await api.put('/config', updates);
-      setConfig(response.data);
+      
+      // Update local state with the response data
+      const updatedConfig = response.data.config || response.data;
+      setConfig(prev => prev ? { ...prev, ...updatedConfig } : null);
+      
+      console.log('Config updated successfully:', updatedConfig);
     } catch (err) {
       console.error('Error updating config:', err);
+      // Revert the change on error
+      fetchData();
     } finally {
       setSaving(false);
     }
@@ -83,26 +158,51 @@ const Settings: React.FC = () => {
 
   const updateUserRole = async (userId: string, newRole: string) => {
     try {
-      await api.put(`/auth/users/${userId}`, { role: newRole });
+      setUpdatingUsers(prev => new Set(prev).add(userId));
+      const response = await api.put(`/auth/users/${userId}`, { role: newRole });
+      console.log('User role updated:', response.data);
+      
+      // Update local state
       setUsers(prev => prev.map(user => 
         user._id === userId ? { ...user, role: newRole as any } : user
       ));
     } catch (err) {
       console.error('Error updating user role:', err);
+      // Revert the change on error
+      fetchData();
+    } finally {
+      setUpdatingUsers(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(userId);
+        return newSet;
+      });
     }
   };
 
   const toggleUserStatus = async (userId: string) => {
     try {
+      setUpdatingUsers(prev => new Set(prev).add(userId));
       const user = users.find(u => u._id === userId);
       if (!user) return;
 
-      await api.put(`/auth/users/${userId}`, { isActive: !user.isActive });
+      const newStatus = !user.isActive;
+      const response = await api.put(`/auth/users/${userId}`, { isActive: newStatus });
+      console.log('User status updated:', response.data);
+      
+      // Update local state
       setUsers(prev => prev.map(u => 
-        u._id === userId ? { ...u, isActive: !u.isActive } : u
+        u._id === userId ? { ...u, isActive: newStatus } : u
       ));
     } catch (err) {
       console.error('Error updating user status:', err);
+      // Revert the change on error
+      fetchData();
+    } finally {
+      setUpdatingUsers(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(userId);
+        return newSet;
+      });
     }
   };
 
@@ -131,9 +231,21 @@ const Settings: React.FC = () => {
     );
   }
 
+  // Config is now guaranteed to be complete with defaults
+  console.log('Rendering with complete config:', config);
+
   return (
     <div className="space-y-6">
-      <h1 className="text-3xl font-bold">Settings</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-3xl font-bold">Settings</h1>
+        <Button 
+          onClick={fetchData} 
+          disabled={loading}
+          variant="outline"
+        >
+          {loading ? 'Loading...' : 'Refresh Settings'}
+        </Button>
+      </div>
 
       {/* Tab Navigation */}
       <div className="border-b border-gray-200">
@@ -177,9 +289,27 @@ const Settings: React.FC = () => {
               <div className="flex items-center space-x-2">
                 <input
                   type="checkbox"
+                  id="stubMode"
+                  checked={config.stubMode}
+                  onChange={async (e) => {
+                    const newValue = e.target.checked;
+                    setConfig(prev => prev ? { ...prev, stubMode: newValue } : null);
+                    await updateConfig({ stubMode: newValue });
+                  }}
+                  className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                />
+                <Label htmlFor="stubMode">Enable stub mode (for testing)</Label>
+              </div>
+              <div className="flex items-center space-x-2">
+                <input
+                  type="checkbox"
                   id="autoAssignment"
-                  checked={config.autoAssignment}
-                  onChange={(e) => updateConfig({ autoAssignment: e.target.checked })}
+                  checked={config.autoAssignmentEnabled}
+                  onChange={async (e) => {
+                    const newValue = e.target.checked;
+                    setConfig(prev => prev ? { ...prev, autoAssignmentEnabled: newValue } : null);
+                    await updateConfig({ autoAssignmentEnabled: newValue });
+                  }}
                   className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                 />
                 <Label htmlFor="autoAssignment">Enable automatic ticket assignment</Label>
@@ -192,77 +322,118 @@ const Settings: React.FC = () => {
               <CardTitle>Business Hours</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="flex items-center space-x-2">
+                <input
+                  type="checkbox"
+                  id="businessHoursEnabled"
+                  checked={config.businessHours.enabled}
+                  onChange={async (e) => {
+                    const newValue = e.target.checked;
+                    setConfig(prev => prev ? {
+                      ...prev,
+                      businessHours: { ...prev.businessHours, enabled: newValue }
+                    } : null);
+                    await updateConfig({
+                      businessHours: { ...config.businessHours, enabled: newValue }
+                    });
+                  }}
+                  className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                />
+                <Label htmlFor="businessHoursEnabled">Enable business hours</Label>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <Label htmlFor="startTime">Start Time</Label>
+                  <Label htmlFor="startTime">Monday Start Time</Label>
                   <Input
                     id="startTime"
                     type="time"
-                    value={config.businessHours.start}
+                    value={config.businessHours?.schedule['Monday']?.start || '09:00'}
                     onChange={(e) => updateConfig({
-                      businessHours: { ...config.businessHours, start: e.target.value }
+                      businessHours: { 
+                        ...config.businessHours, 
+                        schedule: {
+                          ...config.businessHours.schedule,
+                          Monday: { ...config.businessHours.schedule['Monday'], start: e.target.value }
+                        }
+                      }
                     })}
                   />
                 </div>
                 <div>
-                  <Label htmlFor="endTime">End Time</Label>
+                  <Label htmlFor="endTime">Monday End Time</Label>
                   <Input
                     id="endTime"
                     type="time"
-                    value={config.businessHours.end}
+                    value={config.businessHours?.schedule['Monday']?.end || '17:00'}
                     onChange={(e) => updateConfig({
-                      businessHours: { ...config.businessHours, end: e.target.value }
+                      businessHours: { 
+                        ...config.businessHours, 
+                        schedule: {
+                          ...config.businessHours.schedule,
+                          Monday: { ...config.businessHours.schedule['Monday'], end: e.target.value }
+                        }
+                      }
                     })}
                   />
                 </div>
-                <div>
-                  <Label htmlFor="timezone">Timezone</Label>
-                  <Input
-                    id="timezone"
-                    value={config.businessHours.timezone}
-                    onChange={(e) => updateConfig({
-                      businessHours: { ...config.businessHours, timezone: e.target.value }
-                    })}
-                  />
-                </div>
+              </div>
+              <div>
+                <Label htmlFor="timezone">Timezone</Label>
+                <Input
+                  id="timezone"
+                  value={config.businessHours?.timezone || 'UTC'}
+                  onChange={(e) => updateConfig({
+                    businessHours: { 
+                      ...config.businessHours, 
+                      timezone: e.target.value
+                    }
+                  })}
+                />
               </div>
             </CardContent>
           </Card>
 
           <Card>
             <CardHeader>
-              <CardTitle>Escalation Rules</CardTitle>
+              <CardTitle>System Settings</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <Label htmlFor="highPriorityHours">High Priority Escalation (hours)</Label>
+                  <Label htmlFor="slaHours">SLA Hours</Label>
                   <Input
-                    id="highPriorityHours"
+                    id="slaHours"
                     type="number"
-                    value={config.escalationRules.highPriorityHours}
-                    onChange={(e) => updateConfig({
-                      escalationRules: {
-                        ...config.escalationRules,
-                        highPriorityHours: parseInt(e.target.value)
-                      }
-                    })}
+                    value={config.slaHours || 24}
+                    onChange={(e) => updateConfig({ slaHours: parseInt(e.target.value) })}
                   />
                 </div>
                 <div>
-                  <Label htmlFor="urgentPriorityMinutes">Urgent Priority Escalation (minutes)</Label>
+                  <Label htmlFor="confidenceThreshold">Confidence Threshold</Label>
                   <Input
-                    id="urgentPriorityMinutes"
+                    id="confidenceThreshold"
                     type="number"
-                    value={config.escalationRules.urgentPriorityMinutes}
-                    onChange={(e) => updateConfig({
-                      escalationRules: {
-                        ...config.escalationRules,
-                        urgentPriorityMinutes: parseInt(e.target.value)
-                      }
-                    })}
+                    step="0.1"
+                    min="0"
+                    max="1"
+                    value={config.confidenceThreshold || 0.7}
+                    onChange={(e) => updateConfig({ confidenceThreshold: parseFloat(e.target.value) })}
                   />
                 </div>
+              </div>
+              <div className="flex items-center space-x-2">
+                <input
+                  type="checkbox"
+                  id="autoCloseEnabled"
+                  checked={config.autoCloseEnabled}
+                  onChange={async (e) => {
+                    const newValue = e.target.checked;
+                    setConfig(prev => prev ? { ...prev, autoCloseEnabled: newValue } : null);
+                    await updateConfig({ autoCloseEnabled: newValue });
+                  }}
+                  className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                />
+                <Label htmlFor="autoCloseEnabled">Enable automatic ticket closure</Label>
               </div>
             </CardContent>
           </Card>
@@ -295,7 +466,8 @@ const Settings: React.FC = () => {
                     <select
                       value={user.role}
                       onChange={(e) => updateUserRole(user._id, e.target.value)}
-                      className="px-2 py-1 border border-gray-300 rounded text-sm"
+                      disabled={updatingUsers.has(user._id)}
+                      className="px-2 py-1 border border-gray-300 rounded text-sm disabled:opacity-50"
                     >
                       <option value="customer">Customer</option>
                       <option value="agent">Agent</option>
@@ -305,8 +477,9 @@ const Settings: React.FC = () => {
                       variant={user.isActive ? "outline" : "default"}
                       size="sm"
                       onClick={() => toggleUserStatus(user._id)}
+                      disabled={updatingUsers.has(user._id)}
                     >
-                      {user.isActive ? 'Deactivate' : 'Activate'}
+                      {updatingUsers.has(user._id) ? 'Updating...' : (user.isActive ? 'Deactivate' : 'Activate')}
                     </Button>
                   </div>
                 </div>
@@ -327,47 +500,16 @@ const Settings: React.FC = () => {
               <div className="flex items-center space-x-2">
                 <input
                   type="checkbox"
-                  id="newTicketNotif"
-                  checked={config.emailNotifications.newTicket}
-                  onChange={(e) => updateConfig({
-                    emailNotifications: {
-                      ...config.emailNotifications,
-                      newTicket: e.target.checked
-                    }
-                  })}
+                  id="emailNotificationsEnabled"
+                  checked={config.emailNotificationsEnabled}
+                  onChange={async (e) => {
+                    const newValue = e.target.checked;
+                    setConfig(prev => prev ? { ...prev, emailNotificationsEnabled: newValue } : null);
+                    await updateConfig({ emailNotificationsEnabled: newValue });
+                  }}
                   className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                 />
-                <Label htmlFor="newTicketNotif">Send notifications for new tickets</Label>
-              </div>
-              <div className="flex items-center space-x-2">
-                <input
-                  type="checkbox"
-                  id="statusUpdateNotif"
-                  checked={config.emailNotifications.statusUpdate}
-                  onChange={(e) => updateConfig({
-                    emailNotifications: {
-                      ...config.emailNotifications,
-                      statusUpdate: e.target.checked
-                    }
-                  })}
-                  className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                />
-                <Label htmlFor="statusUpdateNotif">Send notifications for status updates</Label>
-              </div>
-              <div className="flex items-center space-x-2">
-                <input
-                  type="checkbox"
-                  id="assignmentNotif"
-                  checked={config.emailNotifications.assignment}
-                  onChange={(e) => updateConfig({
-                    emailNotifications: {
-                      ...config.emailNotifications,
-                      assignment: e.target.checked
-                    }
-                  })}
-                  className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                />
-                <Label htmlFor="assignmentNotif">Send notifications for ticket assignments</Label>
+                <Label htmlFor="emailNotificationsEnabled">Enable email notifications</Label>
               </div>
             </CardContent>
           </Card>
@@ -380,32 +522,59 @@ const Settings: React.FC = () => {
               <div className="flex items-center space-x-2">
                 <input
                   type="checkbox"
-                  id="autoSuggest"
-                  checked={config.knowledgeBase.autoSuggest}
-                  onChange={(e) => updateConfig({
-                    knowledgeBase: {
-                      ...config.knowledgeBase,
-                      autoSuggest: e.target.checked
-                    }
-                  })}
+                  id="requireApproval"
+                  checked={config.kbSettings.requireApproval}
+                  onChange={async (e) => {
+                    const newValue = e.target.checked;
+                    setConfig(prev => prev ? {
+                      ...prev,
+                      kbSettings: { ...prev.kbSettings, requireApproval: newValue }
+                    } : null);
+                    await updateConfig({
+                      kbSettings: { ...config.kbSettings, requireApproval: newValue }
+                    });
+                  }}
                   className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                 />
-                <Label htmlFor="autoSuggest">Enable auto-suggestions for tickets</Label>
+                <Label htmlFor="requireApproval">Require approval for articles</Label>
               </div>
               <div className="flex items-center space-x-2">
                 <input
                   type="checkbox"
-                  id="publicAccess"
-                  checked={config.knowledgeBase.publicAccess}
-                  onChange={(e) => updateConfig({
-                    knowledgeBase: {
-                      ...config.knowledgeBase,
-                      publicAccess: e.target.checked
-                    }
-                  })}
+                  id="allowUserSubmissions"
+                  checked={config.kbSettings.allowUserSubmissions}
+                  onChange={async (e) => {
+                    const newValue = e.target.checked;
+                    setConfig(prev => prev ? {
+                      ...prev,
+                      kbSettings: { ...prev.kbSettings, allowUserSubmissions: newValue }
+                    } : null);
+                    await updateConfig({
+                      kbSettings: { ...config.kbSettings, allowUserSubmissions: newValue }
+                    });
+                  }}
                   className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                 />
-                <Label htmlFor="publicAccess">Allow public access to knowledge base</Label>
+                <Label htmlFor="allowUserSubmissions">Allow user submissions</Label>
+              </div>
+              <div className="flex items-center space-x-2">
+                <input
+                  type="checkbox"
+                  id="autoTagging"
+                  checked={config.kbSettings.autoTagging}
+                  onChange={async (e) => {
+                    const newValue = e.target.checked;
+                    setConfig(prev => prev ? {
+                      ...prev,
+                      kbSettings: { ...prev.kbSettings, autoTagging: newValue }
+                    } : null);
+                    await updateConfig({
+                      kbSettings: { ...config.kbSettings, autoTagging: newValue }
+                    });
+                  }}
+                  className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                />
+                <Label htmlFor="autoTagging">Enable auto-tagging</Label>
               </div>
             </CardContent>
           </Card>

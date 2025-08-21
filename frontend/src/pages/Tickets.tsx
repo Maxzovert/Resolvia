@@ -3,7 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
 import { Input } from '../components/ui/input';
-import { Select } from '../components/ui/select';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
 import { Link } from 'react-router-dom';
 import api from '../lib/api';
 
@@ -82,8 +82,30 @@ const Tickets: React.FC = () => {
     const matchesStatus = statusFilter === 'all' || ticket.status === statusFilter;
     const matchesPriority = priorityFilter === 'all' || ticket.priority === priorityFilter;
     
+    // Debug logging
+    if (searchTerm || statusFilter !== 'all' || priorityFilter !== 'all') {
+      console.log('Filtering ticket:', {
+        title: ticket.title,
+        status: ticket.status,
+        priority: ticket.priority,
+        matchesSearch,
+        matchesStatus,
+        matchesPriority,
+        searchTerm,
+        statusFilter,
+        priorityFilter
+      });
+    }
+    
     return matchesSearch && matchesStatus && matchesPriority;
   });
+
+  // Debug logging for filter counts
+  useEffect(() => {
+    console.log('Filter state:', { searchTerm, statusFilter, priorityFilter });
+    console.log('Total tickets:', tickets.length);
+    console.log('Filtered tickets:', filteredTickets.length);
+  }, [searchTerm, statusFilter, priorityFilter, tickets.length, filteredTickets.length]);
 
   if (loading) {
     return (
@@ -127,32 +149,48 @@ const Tickets: React.FC = () => {
             </div>
             <div>
               <label className="block text-sm font-medium mb-2">Status</label>
-              <Select
-                value={statusFilter}
-                onValueChange={setStatusFilter}
-              >
-                <option value="all">All Statuses</option>
-                <option value="open">Open</option>
-                <option value="triaged">Triaged</option>
-                <option value="waiting_human">Waiting Human</option>
-                <option value="in_progress">In Progress</option>
-                <option value="resolved">Resolved</option>
-                <option value="closed">Closed</option>
+              <Select value={statusFilter} onValueChange={setStatusFilter}>
+                <SelectTrigger className="w-[180px]">
+                  <SelectValue placeholder="Select a status" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Statuses</SelectItem>
+                  <SelectItem value="open">Open</SelectItem>
+                  <SelectItem value="triaged">Triaged</SelectItem>
+                  <SelectItem value="waiting_human">Waiting Human</SelectItem>
+                  <SelectItem value="in_progress">In Progress</SelectItem>
+                  <SelectItem value="resolved">Resolved</SelectItem>
+                  <SelectItem value="closed">Closed</SelectItem>
+                </SelectContent>
               </Select>
             </div>
             <div>
               <label className="block text-sm font-medium mb-2">Priority</label>
-              <Select
-                value={priorityFilter}
-                onValueChange={setPriorityFilter}
-              >
-                <option value="all">All Priorities</option>
-                <option value="low">Low</option>
-                <option value="medium">Medium</option>
-                <option value="high">High</option>
-                <option value="urgent">Urgent</option>
+              <Select value={priorityFilter} onValueChange={setPriorityFilter}>
+                <SelectTrigger className="w-[180px]">
+                  <SelectValue placeholder="Select a priority" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Priorities</SelectItem>
+                  <SelectItem value="low">Low</SelectItem>
+                  <SelectItem value="medium">Medium</SelectItem>
+                  <SelectItem value="high">High</SelectItem>
+                  <SelectItem value="urgent">Urgent</SelectItem>
+                </SelectContent>
               </Select>
             </div>
+          </div>
+          <div className="flex justify-end mt-4">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setSearchTerm('');
+                setStatusFilter('all');
+                setPriorityFilter('all');
+              }}
+            >
+              Clear Filters
+            </Button>
           </div>
         </CardContent>
       </Card>

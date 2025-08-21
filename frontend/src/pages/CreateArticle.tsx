@@ -12,7 +12,6 @@ interface ArticleForm {
   content: string;
   category: string;
   tags: string;
-  isPublic: boolean;
 }
 
 const CreateArticle: React.FC = () => {
@@ -21,21 +20,16 @@ const CreateArticle: React.FC = () => {
     title: '',
     content: '',
     category: '',
-    tags: '',
-    isPublic: true
+    tags: ''
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const categories = [
-    'Troubleshooting',
-    'How-to Guides',
-    'FAQ',
-    'Product Documentation',
-    'Best Practices',
-    'Policies',
-    'Technical Specifications',
-    'Other'
+    { value: 'billing', label: 'Billing' },
+    { value: 'tech', label: 'Technical' },
+    { value: 'shipping', label: 'Shipping' },
+    { value: 'other', label: 'Other' }
   ];
 
   const handleInputChange = (
@@ -66,10 +60,10 @@ const CreateArticle: React.FC = () => {
 
       const response = await api.post('/kb/articles', {
         title: formData.title,
-        content: formData.content,
-        category: formData.category || 'Other',
+        body: formData.content,
+        category: (formData.category || 'other').toLowerCase(),
         tags: tagsArray,
-        isPublic: formData.isPublic
+        status: 'published'
       });
 
       navigate(`/kb/${response.data._id}`);
@@ -127,8 +121,8 @@ const CreateArticle: React.FC = () => {
                 >
                   <option value="">Select a category</option>
                   {categories.map(category => (
-                    <option key={category} value={category}>
-                      {category}
+                    <option key={category.value} value={category.value}>
+                      {category.label}
                     </option>
                   ))}
                 </select>
@@ -145,16 +139,7 @@ const CreateArticle: React.FC = () => {
               </div>
             </div>
 
-            <div className="flex items-center space-x-2">
-              <input
-                type="checkbox"
-                id="isPublic"
-                checked={formData.isPublic}
-                onChange={(e) => handleInputChange('isPublic', e.target.checked)}
-                className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-              />
-              <Label htmlFor="isPublic">Make this article public</Label>
-            </div>
+
 
             <div>
               <Label htmlFor="content">Content *</Label>

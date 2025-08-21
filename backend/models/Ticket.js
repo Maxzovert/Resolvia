@@ -111,7 +111,7 @@ ticketSchema.virtual('slaStatus').get(function() {
   if (this.status === 'resolved' || this.status === 'closed') return 'met';
   
   const now = new Date();
-  const timeRemaining = this.slaDeadline - now;
+  const timeRemaining = this.slaDeadline.getTime() - now.getTime();
   
   if (timeRemaining < 0) return 'breached';
   if (timeRemaining < 2 * 60 * 60 * 1000) return 'at_risk'; // 2 hours
@@ -120,9 +120,11 @@ ticketSchema.virtual('slaStatus').get(function() {
 
 // Virtual for response time
 ticketSchema.virtual('responseTime').get(function() {
-  if (this.replies.length === 0) return null;
+  if (this.replies.length === 0 || !this.createdAt) return null;
   
   const firstReply = this.replies[0];
+  if (!firstReply.createdAt) return null;
+  
   return firstReply.createdAt - this.createdAt;
 });
 
@@ -159,9 +161,10 @@ ticketSchema.methods.assignTo = function(agentId) {
 
 ticketSchema.methods.setSLA = function(hours) {
   if (hours && hours > 0) {
-    this.slaDeadline = new Date(this.createdAt.getTime() + (hours * 60 * 60 * 1000));
+    const baseDate = this.createdAt || new Date();
+    this.slaDeadline = new Date(baseDate.getTime() + (hours * 60 * 60 * 1000));
   }
-  return this.save();
+  return this;
 };
 
 // Static methods

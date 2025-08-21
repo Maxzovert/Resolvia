@@ -5,7 +5,13 @@ import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Label } from '../components/ui/label';
 import { Textarea } from '../components/ui/textarea';
-import { Select } from '../components/ui/select';
+import { 
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../components/ui/select';
 import api from '../lib/api';
 
 interface TicketForm {
@@ -13,8 +19,6 @@ interface TicketForm {
   description: string;
   priority: 'low' | 'medium' | 'high' | 'urgent';
   category: string;
-  customerName: string;
-  customerEmail: string;
 }
 
 const CreateTicket: React.FC = () => {
@@ -23,27 +27,23 @@ const CreateTicket: React.FC = () => {
     title: '',
     description: '',
     priority: 'medium',
-    category: '',
-    customerName: '',
-    customerEmail: ''
+    category: 'other'
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const categories = [
-    'Technical Issue',
-    'Billing',
-    'Feature Request',
-    'Bug Report',
-    'Account Access',
-    'General Inquiry',
-    'Other'
+    { value: 'tech', label: 'Technical Issue' },
+    { value: 'billing', label: 'Billing' },
+    { value: 'shipping', label: 'Shipping' },
+    { value: 'other', label: 'Other' }
   ];
 
   const handleInputChange = (
     field: keyof TicketForm,
     value: string
   ) => {
+    console.log(`Setting ${field} to:`, value); // Debug log
     setFormData(prev => ({
       ...prev,
       [field]: value
@@ -54,8 +54,7 @@ const CreateTicket: React.FC = () => {
     e.preventDefault();
     setError(null);
 
-    if (!formData.title.trim() || !formData.description.trim() || 
-        !formData.customerName.trim() || !formData.customerEmail.trim()) {
+    if (!formData.title.trim() || !formData.description.trim()) {
       setError('Please fill in all required fields');
       return;
     }
@@ -66,17 +65,17 @@ const CreateTicket: React.FC = () => {
         title: formData.title,
         description: formData.description,
         priority: formData.priority,
-        category: formData.category || 'General Inquiry',
-        customer: {
-          name: formData.customerName,
-          email: formData.customerEmail
-        }
+        category: formData.category
       });
 
+      console.log('Ticket created successfully:', response.data); // Debug log
+      console.log('Ticket ID:', response.data._id); // Debug log
       navigate(`/tickets/${response.data._id}`);
     } catch (err: any) {
-      setError(err.response?.data?.message || 'Failed to create ticket');
       console.error('Error creating ticket:', err);
+      console.error('Error response:', err.response?.data);
+      console.error('Form data sent:', formData);
+      setError(err.response?.data?.message || err.response?.data?.error || 'Failed to create ticket');
     } finally {
       setLoading(false);
     }
@@ -120,53 +119,33 @@ const CreateTicket: React.FC = () => {
 
               <div>
                 <Label htmlFor="priority">Priority</Label>
-                <Select
-                  value={formData.priority}
-                  onValueChange={(value) => handleInputChange('priority', value)}
-                >
-                  <option value="low">Low</option>
-                  <option value="medium">Medium</option>
-                  <option value="high">High</option>
-                  <option value="urgent">Urgent</option>
+                <Select value={formData.priority} onValueChange={(value) => handleInputChange('priority', value)}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select priority" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="low">Low</SelectItem>
+                    <SelectItem value="medium">Medium</SelectItem>
+                    <SelectItem value="high">High</SelectItem>
+                    <SelectItem value="urgent">Urgent</SelectItem>
+                  </SelectContent>
                 </Select>
               </div>
 
               <div>
                 <Label htmlFor="category">Category</Label>
-                <Select
-                  value={formData.category}
-                  onValueChange={(value) => handleInputChange('category', value)}
-                >
-                  <option value="">Select a category</option>
-                  {categories.map(category => (
-                    <option key={category} value={category}>
-                      {category}
-                    </option>
-                  ))}
+                <Select value={formData.category} onValueChange={(value) => handleInputChange('category', value)}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select a category" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {categories.map(category => (
+                      <SelectItem key={category.value} value={category.value}>
+                        {category.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
                 </Select>
-              </div>
-
-              <div>
-                <Label htmlFor="customerName">Customer Name *</Label>
-                <Input
-                  id="customerName"
-                  placeholder="Customer's full name"
-                  value={formData.customerName}
-                  onChange={(e) => handleInputChange('customerName', e.target.value)}
-                  required
-                />
-              </div>
-
-              <div>
-                <Label htmlFor="customerEmail">Customer Email *</Label>
-                <Input
-                  id="customerEmail"
-                  type="email"
-                  placeholder="customer@example.com"
-                  value={formData.customerEmail}
-                  onChange={(e) => handleInputChange('customerEmail', e.target.value)}
-                  required
-                />
               </div>
 
               <div className="md:col-span-2">

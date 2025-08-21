@@ -25,7 +25,6 @@ router.get('/articles',
     
     // Non-admin users only see published articles
     if (!req.user || req.user.role !== 'admin') {
-      filterQuery.isPublic = true;
       filterQuery.status = 'published';
     } else if (status) {
       filterQuery.status = status;
@@ -35,7 +34,7 @@ router.get('/articles',
     if (query) filterQuery.$text = { $search: query };
     
     const articles = await Article.find(filterQuery)
-      .populate('author', 'name email')
+      .populate('createdBy', 'name email')
       .sort({ updatedAt: -1 })
       .limit(parseInt(limit))
       .skip(parseInt(skip));
@@ -49,14 +48,14 @@ router.get('/articles/:id',
   optionalAuth,
   asyncHandler(async (req, res) => {
     const article = await Article.findById(req.params.id)
-      .populate('author', 'name email');
+      .populate('createdBy', 'name email');
     
     if (!article) {
       return res.status(404).json({ error: 'Article not found' });
     }
     
     // Check visibility
-    if (!article.isPublic && (!req.user || req.user.role !== 'admin')) {
+    if (article.status !== 'published' && (!req.user || req.user.role !== 'admin')) {
       return res.status(403).json({ error: 'Access denied' });
     }
     
@@ -76,20 +75,19 @@ router.post('/articles',
   requireAdmin,
   validateRequest(createArticleSchema),
   asyncHandler(async (req, res) => {
-    const { title, content, category, tags = [], isPublic = true } = req.body;
+    const { title, body, category, tags = [] } = req.body;
     
     const article = new Article({
       title,
-      content,
+      body,
       category,
       tags,
-      isPublic,
-      author: req.user._id,
+      createdBy: req.user._id,
       status: 'published'
     });
     
     await article.save();
-    await article.populate('author', 'name email');
+    await article.populate('createdBy', 'name email');
     
     res.status(201).json(article);
   })
@@ -149,9 +147,7 @@ router.get('/',
 router.get('/:id',
   optionalAuth,
   asyncHandler(async (req, res) => {
-    const article = await Article.findById(req.params.id)
-      .populate('createdBy', 'name email')
-      .populate('updatedBy', 'name email');
+    const article = await Article.findById(req.params.id);
     
     if (!article) {
       return res.status(404).json({ error: 'Article not found' });
@@ -191,7 +187,7 @@ router.post('/',
     const article = new Article(articleData);
     await article.save();
     
-    await article.populate('createdBy', 'name email');
+
     
     res.status(201).json({
       message: 'Article created successfully',
@@ -223,7 +219,7 @@ router.put('/:id',
     article.updatedBy = req.user._id;
     await article.save();
     
-    await article.populate(['createdBy', 'updatedBy'], 'name email');
+
     
     res.json({
       message: 'Article updated successfully',

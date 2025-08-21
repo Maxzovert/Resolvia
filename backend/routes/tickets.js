@@ -74,18 +74,31 @@ router.post('/',
   requireUser,
   validateRequest(createTicketSchema),
   asyncHandler(async (req, res) => {
+    console.log('Creating ticket with data:', req.body); // Debug log
+    console.log('User creating ticket:', req.user); // Debug log
     const ticketData = {
       ...req.body,
       createdBy: req.user._id
     };
+    console.log('Final ticket data:', ticketData); // Debug log
     
     const ticket = new Ticket(ticketData);
     
-    // Set SLA deadline
-    const config = await Config.getConfig();
-    await ticket.setSLA(config.slaHours);
-    
+    // Save ticket first to get the createdAt timestamp
     await ticket.save();
+    
+    // Set SLA deadline after saving
+    let config;
+    try {
+      config = await Config.getConfig();
+    } catch (error) {
+      console.warn('Failed to get config, using default SLA:', error.message);
+      config = { slaHours: 24 }; // Default fallback
+    }
+    
+    ticket.setSLA(config.slaHours);
+    await ticket.save();
+    
     await ticket.populate('createdBy', 'name email');
     
     // Log ticket creation

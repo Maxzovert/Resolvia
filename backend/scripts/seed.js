@@ -1,5 +1,4 @@
 import mongoose from 'mongoose';
-import bcrypt from 'bcryptjs';
 import User from '../models/User.js';
 import Article from '../models/Article.js';
 import Ticket from '../models/Ticket.js';
@@ -24,34 +23,32 @@ const seedData = async () => {
     console.log('Cleared existing data');
 
     // Create demo users
-    const salt = await bcrypt.genSalt(12);
-    
     const users = await User.create([
       {
         name: 'Admin User',
         email: 'admin@resolvia.com',
-        passwordHash: await bcrypt.hash('admin123', salt),
+        passwordHash: 'admin123', // Will be hashed by pre-save middleware
         role: 'admin',
         isActive: true
       },
       {
         name: 'Agent Smith',
         email: 'agent@resolvia.com',
-        passwordHash: await bcrypt.hash('agent123', salt),
+        passwordHash: 'agent123', // Will be hashed by pre-save middleware
         role: 'agent',
         isActive: true
       },
       {
         name: 'John Doe',
         email: 'user@resolvia.com',
-        passwordHash: await bcrypt.hash('user123', salt),
+        passwordHash: 'user123', // Will be hashed by pre-save middleware
         role: 'user',
         isActive: true
       },
       {
         name: 'Jane Customer',
         email: 'jane@customer.com',
-        passwordHash: await bcrypt.hash('password123', salt),
+        passwordHash: 'password123', // Will be hashed by pre-save middleware
         role: 'user',
         isActive: true
       }

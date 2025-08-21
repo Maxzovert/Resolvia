@@ -11,12 +11,18 @@ interface Ticket {
   _id: string;
   title: string;
   description: string;
-  status: 'open' | 'in-progress' | 'resolved' | 'closed';
+  status: 'open' | 'triaged' | 'waiting_human' | 'in_progress' | 'resolved' | 'closed';
   priority: 'low' | 'medium' | 'high' | 'urgent';
   category: string;
   createdAt: string;
   updatedAt: string;
-  customer: {
+  createdBy: {
+    _id: string;
+    name: string;
+    email: string;
+  };
+  assignee?: {
+    _id: string;
     name: string;
     email: string;
   };
@@ -38,7 +44,7 @@ const Tickets: React.FC = () => {
     try {
       setLoading(true);
       const response = await api.get('/tickets');
-      setTickets(response.data);
+      setTickets(response.data.tickets || []);
     } catch (err) {
       setError('Failed to fetch tickets');
       console.error('Error fetching tickets:', err);
@@ -50,7 +56,9 @@ const Tickets: React.FC = () => {
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'open': return 'bg-blue-100 text-blue-800';
-      case 'in-progress': return 'bg-yellow-100 text-yellow-800';
+      case 'triaged': return 'bg-purple-100 text-purple-800';
+      case 'waiting_human': return 'bg-orange-100 text-orange-800';
+      case 'in_progress': return 'bg-yellow-100 text-yellow-800';
       case 'resolved': return 'bg-green-100 text-green-800';
       case 'closed': return 'bg-gray-100 text-gray-800';
       default: return 'bg-gray-100 text-gray-800';
@@ -70,7 +78,7 @@ const Tickets: React.FC = () => {
   const filteredTickets = tickets.filter(ticket => {
     const matchesSearch = ticket.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
                          ticket.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         ticket.customer.name.toLowerCase().includes(searchTerm.toLowerCase());
+                         ticket.createdBy.name.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesStatus = statusFilter === 'all' || ticket.status === statusFilter;
     const matchesPriority = priorityFilter === 'all' || ticket.priority === priorityFilter;
     
@@ -125,7 +133,9 @@ const Tickets: React.FC = () => {
               >
                 <option value="all">All Statuses</option>
                 <option value="open">Open</option>
-                <option value="in-progress">In Progress</option>
+                <option value="triaged">Triaged</option>
+                <option value="waiting_human">Waiting Human</option>
+                <option value="in_progress">In Progress</option>
                 <option value="resolved">Resolved</option>
                 <option value="closed">Closed</option>
               </Select>
@@ -179,7 +189,7 @@ const Tickets: React.FC = () => {
                       {ticket.description}
                     </p>
                     <div className="flex items-center gap-4 text-sm text-gray-500">
-                      <span>Customer: {ticket.customer.name}</span>
+                      <span>Customer: {ticket.createdBy.name}</span>
                       <span>Category: {ticket.category}</span>
                       <span>Created: {new Date(ticket.createdAt).toLocaleDateString()}</span>
                     </div>

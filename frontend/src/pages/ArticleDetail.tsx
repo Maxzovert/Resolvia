@@ -9,13 +9,16 @@ import { useAuth } from '../contexts/AuthContext';
 interface Article {
   _id: string;
   title: string;
-  content: string;
+  body: string;
   category: string;
   tags: string[];
-  isPublic: boolean;
+  status: 'draft' | 'published';
   createdAt: string;
   updatedAt: string;
-  author: {
+  viewCount: number;
+  helpfulCount: number;
+  createdBy: {
+    _id: string;
     name: string;
     email: string;
   };
@@ -39,7 +42,8 @@ const ArticleDetail: React.FC = () => {
     try {
       setLoading(true);
       const response = await api.get(`/kb/articles/${id}`);
-      setArticle(response.data);
+      console.log('Article response:', response.data); // Debug log
+      setArticle(response.data.article || response.data);
     } catch (err) {
       setError('Failed to fetch article');
       console.error('Error fetching article:', err);
@@ -118,14 +122,14 @@ const ArticleDetail: React.FC = () => {
       <Card>
         <CardHeader>
           <div className="space-y-4">
-            <CardTitle className="text-3xl">{article.title}</CardTitle>
+            <CardTitle className="text-3xl">{article?.title || 'Untitled'}</CardTitle>
             
             <div className="flex flex-wrap items-center gap-3">
-              <Badge variant="outline">{article.category}</Badge>
-              {!article.isPublic && (
-                <Badge variant="secondary">Private</Badge>
+              <Badge variant="outline">{article?.category || 'Uncategorized'}</Badge>
+              {article?.status === 'draft' && (
+                <Badge variant="secondary">Draft</Badge>
               )}
-              {article.tags.map((tag, index) => (
+              {article?.tags?.map((tag, index) => (
                 <Badge key={index} variant="outline" className="text-xs">
                   {tag}
                 </Badge>
@@ -134,16 +138,16 @@ const ArticleDetail: React.FC = () => {
             
             <div className="flex items-center justify-between text-sm text-gray-600">
               <div>
-                <span className="font-medium">Author:</span> {article.author.name}
+                <span className="font-medium">Author:</span> {article?.createdBy?.name || 'Unknown'}
               </div>
               <div className="flex gap-4">
                 <span>
                   <span className="font-medium">Created:</span>{' '}
-                  {new Date(article.createdAt).toLocaleDateString()}
+                  {article?.createdAt ? new Date(article.createdAt).toLocaleDateString() : 'Unknown'}
                 </span>
                 <span>
                   <span className="font-medium">Updated:</span>{' '}
-                  {new Date(article.updatedAt).toLocaleDateString()}
+                  {article?.updatedAt ? new Date(article.updatedAt).toLocaleDateString() : 'Unknown'}
                 </span>
               </div>
             </div>
@@ -153,7 +157,7 @@ const ArticleDetail: React.FC = () => {
         <CardContent>
           <div className="prose max-w-none">
             <div className="text-gray-800 leading-relaxed">
-              {formatContent(article.content)}
+              {article?.body ? formatContent(article.body) : 'No content available'}
             </div>
           </div>
         </CardContent>

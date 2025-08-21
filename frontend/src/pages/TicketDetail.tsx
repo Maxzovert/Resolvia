@@ -11,33 +11,43 @@ interface Ticket {
   _id: string;
   title: string;
   description: string;
-  status: 'open' | 'in-progress' | 'resolved' | 'closed';
+  status: 'open' | 'triaged' | 'waiting_human' | 'in_progress' | 'resolved' | 'closed';
   priority: 'low' | 'medium' | 'high' | 'urgent';
   category: string;
   createdAt: string;
   updatedAt: string;
-  customer: {
+  createdBy: {
+    _id: string;
     name: string;
     email: string;
   };
-  assignedTo?: {
+  assignee?: {
+    _id: string;
     name: string;
     email: string;
   };
-  comments: Array<{
+  replies: Array<{
     _id: string;
     content: string;
     author: {
+      _id: string;
       name: string;
+      email: string;
       role: string;
     };
     createdAt: string;
+    isInternal: boolean;
   }>;
 }
 
 const TicketDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  
+  console.log('TicketDetail rendered with id:', id); // Debug log
+  console.log('Current URL:', window.location.href); // Debug log
+  console.log('useParams result:', useParams()); // Debug log
+  
   const [ticket, setTicket] = useState<Ticket | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -45,19 +55,30 @@ const TicketDetail: React.FC = () => {
   const [updating, setUpdating] = useState(false);
 
   useEffect(() => {
-    if (id) {
+    console.log('useEffect triggered with id:', id); // Debug log
+    if (id && id !== 'undefined' && id !== 'null') {
       fetchTicket();
+    } else {
+      console.error('Invalid ticket ID:', id); // Debug log
+      setError('Invalid ticket ID - redirecting to tickets list');
+      setLoading(false);
+      // Redirect to tickets list after a short delay
+      setTimeout(() => {
+        navigate('/tickets');
+      }, 2000);
     }
-  }, [id]);
+  }, [id, navigate]);
 
   const fetchTicket = async () => {
     try {
+      console.log('Fetching ticket with id:', id); // Debug log
       setLoading(true);
       const response = await api.get(`/tickets/${id}`);
-      setTicket(response.data);
+      console.log('Ticket response:', response.data); // Debug log
+      setTicket(response.data.ticket);
     } catch (err) {
-      setError('Failed to fetch ticket details');
       console.error('Error fetching ticket:', err);
+      setError('Failed to fetch ticket details');
     } finally {
       setLoading(false);
     }
@@ -84,7 +105,7 @@ const TicketDetail: React.FC = () => {
       });
       setTicket(prev => prev ? {
         ...prev,
-        comments: [...prev.comments, response.data]
+        replies: [...prev.replies, response.data]
       } : null);
       setNewComment('');
     } catch (err) {
@@ -95,7 +116,9 @@ const TicketDetail: React.FC = () => {
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'open': return 'bg-blue-100 text-blue-800';
-      case 'in-progress': return 'bg-yellow-100 text-yellow-800';
+      case 'triaged': return 'bg-purple-100 text-purple-800';
+      case 'waiting_human': return 'bg-orange-100 text-orange-800';
+      case 'in_progress': return 'bg-yellow-100 text-yellow-800';
       case 'resolved': return 'bg-green-100 text-green-800';
       case 'closed': return 'bg-gray-100 text-gray-800';
       default: return 'bg-gray-100 text-gray-800';
@@ -161,7 +184,9 @@ const TicketDetail: React.FC = () => {
                 disabled={updating}
               >
                 <option value="open">Open</option>
-                <option value="in-progress">In Progress</option>
+                <option value="triaged">Triaged</option>
+                <option value="waiting_human">Waiting Human</option>
+                <option value="in_progress">In Progress</option>
                 <option value="resolved">Resolved</option>
                 <option value="closed">Closed</option>
               </Select>
@@ -177,18 +202,18 @@ const TicketDetail: React.FC = () => {
             <div className="space-y-4">
               <div>
                 <h4 className="font-medium text-gray-600">Customer</h4>
-                <p>{ticket.customer.name}</p>
-                <p className="text-sm text-gray-500">{ticket.customer.email}</p>
+                <p>{ticket.createdBy?.name || 'Unknown'}</p>
+                <p className="text-sm text-gray-500">{ticket.createdBy?.email || 'No email'}</p>
               </div>
               <div>
                 <h4 className="font-medium text-gray-600">Category</h4>
                 <p>{ticket.category}</p>
               </div>
-              {ticket.assignedTo && (
+              {ticket.assignee && (
                 <div>
                   <h4 className="font-medium text-gray-600">Assigned To</h4>
-                  <p>{ticket.assignedTo.name}</p>
-                  <p className="text-sm text-gray-500">{ticket.assignedTo.email}</p>
+                  <p>{ticket.assignee.name}</p>
+                  <p className="text-sm text-gray-500">{ticket.assignee.email}</p>
                 </div>
               )}
               <div>
@@ -211,7 +236,7 @@ const TicketDetail: React.FC = () => {
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
-            {ticket.comments.map((comment) => (
+            {ticket.replies.map((comment) => (
               <div key={comment._id} className="border-l-4 border-blue-200 pl-4">
                 <div className="flex items-center justify-between mb-1">
                   <span className="font-medium">{comment.author.name}</span>
@@ -223,7 +248,7 @@ const TicketDetail: React.FC = () => {
               </div>
             ))}
             
-            {ticket.comments.length === 0 && (
+            {ticket.replies.length === 0 && (
               <p className="text-gray-500 text-center py-4">No comments yet</p>
             )}
           </div>

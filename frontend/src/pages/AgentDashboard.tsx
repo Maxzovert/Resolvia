@@ -9,10 +9,12 @@ interface TicketSummary {
   _id: string;
   title: string;
   priority: 'low' | 'medium' | 'high' | 'urgent';
-  status: 'open' | 'in-progress' | 'resolved' | 'closed';
+  status: 'open' | 'triaged' | 'waiting_human' | 'in_progress' | 'resolved' | 'closed';
   createdAt: string;
-  customer: {
+  createdBy: {
+    _id: string;
     name: string;
+    email: string;
   };
 }
 
@@ -217,13 +219,13 @@ const AgentDashboard: React.FC = () => {
                         {ticket.title}
                       </Link>
                       <p className="text-sm text-gray-500">
-                        {ticket.customer.name} • {new Date(ticket.createdAt).toLocaleDateString()}
+                        {ticket.createdBy.name} • {new Date(ticket.createdAt).toLocaleDateString()}
                       </p>
                       <div className="flex gap-2 mt-1">
-                        <Badge className={getPriorityColor(ticket.priority)} size="sm">
+                        <Badge className={getPriorityColor(ticket.priority)}>
                           {ticket.priority}
                         </Badge>
-                        <Badge className={getStatusColor(ticket.status)} size="sm">
+                        <Badge className={getStatusColor(ticket.status)}>
                           {ticket.status}
                         </Badge>
                       </div>
@@ -274,7 +276,7 @@ const AgentDashboard: React.FC = () => {
                           <p className="text-sm font-medium capitalize">{suggestion.type} Suggestion</p>
                           <p className="text-sm text-gray-600 mt-1">{suggestion.content}</p>
                           <div className="flex items-center gap-2 mt-2">
-                            <Badge variant="outline" size="sm">
+                            <Badge variant="outline">
                               {Math.round(suggestion.confidence * 100)}% confidence
                             </Badge>
                             <span className="text-xs text-gray-400">

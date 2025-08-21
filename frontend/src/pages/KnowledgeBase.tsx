@@ -10,13 +10,16 @@ import { useAuth } from '../contexts/AuthContext';
 interface Article {
   _id: string;
   title: string;
-  content: string;
+  body: string;
   category: string;
   tags: string[];
-  isPublic: boolean;
+  status: 'draft' | 'published';
   createdAt: string;
   updatedAt: string;
-  author: {
+  viewCount: number;
+  helpfulCount: number;
+  createdBy: {
+    _id: string;
     name: string;
     email: string;
   };
@@ -51,7 +54,7 @@ const KnowledgeBase: React.FC = () => {
 
   const filteredArticles = articles.filter(article => {
     const matchesSearch = article.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         article.content.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                         article.body.toLowerCase().includes(searchTerm.toLowerCase()) ||
                          article.tags.some(tag => tag.toLowerCase().includes(searchTerm.toLowerCase()));
     const matchesCategory = categoryFilter === 'all' || article.category === categoryFilter;
     
@@ -159,7 +162,7 @@ const KnowledgeBase: React.FC = () => {
                 </div>
                 
                 <p className="text-gray-600 mb-4">
-                  {truncateContent(article.content)}
+                  {truncateContent(article.body)}
                 </p>
                 
                 {article.tags.length > 0 && (
@@ -173,7 +176,7 @@ const KnowledgeBase: React.FC = () => {
                 )}
                 
                 <div className="flex items-center justify-between text-sm text-gray-500">
-                  <span>By {article.author.name}</span>
+                  <span>By {article.createdBy.name}</span>
                   <span>Updated: {new Date(article.updatedAt).toLocaleDateString()}</span>
                 </div>
               </CardContent>

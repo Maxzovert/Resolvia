@@ -17,6 +17,8 @@ import auditRoutes from './routes/audit.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import { authenticateToken } from './middleware/auth.js';
 
+// Load environment setup for development
+import './env-setup.js';
 dotenv.config();
 
 const app = express();
@@ -34,10 +36,13 @@ app.use(cors({
 // Rate limiting for auth endpoints
 const authLimiter = rateLimit({
   windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000, // 15 minutes
-  max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 5,
+  max: process.env.NODE_ENV === 'development' 
+    ? 100 // More relaxed for development
+    : (parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 5), // Strict for production
   message: { error: 'Too many auth attempts, please try again later' },
   standardHeaders: true,
   legacyHeaders: false,
+  skip: process.env.NODE_ENV === 'development' ? () => false : undefined, // Optional: disable in dev
 });
 
 // Body parser middleware
@@ -68,10 +73,13 @@ app.use('*', (req, res) => {
 // Database connection
 const connectDB = async () => {
   try {
-    const conn = await mongoose.connect(process.env.MONGODB_URI);
+    // Use MongoDB Atlas connection string or fallback to local
+    const mongoURI = process.env.MONGODB_URI || 'mongodb://localhost:27017/resolvia';
+    const conn = await mongoose.connect(mongoURI);
     console.log(`MongoDB Connected: ${conn.connection.host}`);
   } catch (error) {
     console.error('Database connection error:', error);
+    console.log('Make sure MongoDB is running or update MONGODB_URI in your environment');
     process.exit(1);
   }
 };

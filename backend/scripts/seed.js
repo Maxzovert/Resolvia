@@ -6,6 +6,8 @@ import Ticket from '../models/Ticket.js';
 import Config from '../models/Config.js';
 import dotenv from 'dotenv';
 
+// Load environment setup
+import '../env-setup.js';
 dotenv.config();
 
 const seedData = async () => {

@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState } from 'react'
-import { authAPI } from '@/lib/api'
+import { authAPI } from '../lib/api'
 
 interface User {
   _id: string

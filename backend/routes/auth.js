@@ -223,6 +223,57 @@ router.put('/change-password',
   })
 );
 
+// Get all users (for admin)
+router.get('/users',
+  authenticateToken,
+  asyncHandler(async (req, res) => {
+    // Only allow admin to view all users
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+    
+    const users = await User.find({})
+      .select('-refreshTokens -passwordHash')
+      .sort({ createdAt: -1 });
+    
+    res.json(users);
+  })
+);
+
+// Update user (for admin)
+router.put('/users/:id',
+  authenticateToken,
+  asyncHandler(async (req, res) => {
+    // Only allow admin to update users
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ error: 'Admin access required' });
+    }
+    
+    const { id } = req.params;
+    const { role, isActive } = req.body;
+    
+    const user = await User.findById(id);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+    
+    // Update allowed fields
+    if (role !== undefined) {
+      user.role = role;
+    }
+    if (isActive !== undefined) {
+      user.isActive = isActive;
+    }
+    
+    await user.save();
+    
+    res.json({
+      message: 'User updated successfully',
+      user: user.toJSON()
+    });
+  })
+);
+
 // Get user stats (for admin)
 router.get('/stats',
   authenticateToken,

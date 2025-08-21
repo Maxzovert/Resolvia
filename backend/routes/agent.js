@@ -321,4 +321,102 @@ router.get('/quality-trends',
   })
 );
 
+// Get agent's assigned tickets
+router.get('/tickets',
+  authenticateToken,
+  requireAgent,
+  asyncHandler(async (req, res) => {
+    const tickets = await Ticket.find({ assignee: req.user._id })
+      .populate('createdBy', 'name email')
+      .sort({ createdAt: -1 })
+      .limit(10);
+    
+    res.json(tickets);
+  })
+);
+
+// Get agent stats for dashboard
+router.get('/stats',
+  authenticateToken,
+  requireAgent,
+  asyncHandler(async (req, res) => {
+    const userId = req.user._id;
+    
+    // Get assigned tickets count
+    const assignedTickets = await Ticket.countDocuments({ assignee: userId });
+    
+    // Get resolved tickets today
+    const startOfDay = new Date();
+    startOfDay.setHours(0, 0, 0, 0);
+    const resolvedToday = await Ticket.countDocuments({
+      assignee: userId,
+      status: 'resolved',
+      updatedAt: { $gte: startOfDay }
+    });
+    
+    // Calculate average response time (simplified)
+    const avgResponseTime = 2.5; // Hours - this would need more complex calculation
+    
+    // Customer satisfaction (simplified)
+    const customerSatisfaction = 95; // Percentage - this would come from feedback data
+    
+    res.json({
+      assignedTickets,
+      resolvedToday,
+      avgResponseTime,
+      customerSatisfaction
+    });
+  })
+);
+
+// Get AI suggestions for agent
+router.get('/suggestions',
+  authenticateToken,
+  requireAgent,
+  asyncHandler(async (req, res) => {
+    // Get recent suggestions for tickets assigned to this agent
+    const suggestions = await AgentSuggestion.find({
+      used: false
+    })
+    .populate({
+      path: 'ticketId',
+      match: { assignee: req.user._id },
+      select: 'title status'
+    })
+    .sort({ createdAt: -1 })
+    .limit(5);
+    
+    // Filter out suggestions where ticket population failed
+    const validSuggestions = suggestions.filter(s => s.ticketId);
+    
+    res.json(validSuggestions);
+  })
+);
+
+// Delete/dismiss a suggestion
+router.delete('/suggestions/:id',
+  authenticateToken,
+  requireAgent,
+  asyncHandler(async (req, res) => {
+    const suggestion = await AgentSuggestion.findById(req.params.id);
+    
+    if (!suggestion) {
+      return res.status(404).json({ error: 'Suggestion not found' });
+    }
+    
+    // Mark as used/dismissed instead of deleting
+    suggestion.used = true;
+    suggestion.agentFeedback = {
+      submittedBy: req.user._id,
+      accepted: false,
+      rating: 1,
+      feedbackNotes: 'Dismissed by agent'
+    };
+    
+    await suggestion.save();
+    
+    res.json({ message: 'Suggestion dismissed' });
+  })
+);
+
 export default router;

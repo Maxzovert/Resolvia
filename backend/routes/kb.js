@@ -12,6 +12,106 @@ import { asyncHandler } from '../middleware/errorHandler.js';
 
 const router = express.Router();
 
+// Get all articles (alias for frontend compatibility)
+router.get('/articles',
+  optionalAuth,
+  validateQuery(searchSchema),
+  asyncHandler(async (req, res) => {
+    const { query, category, status = 'published', limit = 20, page = 1 } = req.query;
+    const skip = (page - 1) * limit;
+    
+    // Build filter query
+    let filterQuery = {};
+    
+    // Non-admin users only see published articles
+    if (!req.user || req.user.role !== 'admin') {
+      filterQuery.isPublic = true;
+      filterQuery.status = 'published';
+    } else if (status) {
+      filterQuery.status = status;
+    }
+    
+    if (category) filterQuery.category = category;
+    if (query) filterQuery.$text = { $search: query };
+    
+    const articles = await Article.find(filterQuery)
+      .populate('author', 'name email')
+      .sort({ updatedAt: -1 })
+      .limit(parseInt(limit))
+      .skip(parseInt(skip));
+    
+    res.json(articles);
+  })
+);
+
+// Get single article by ID (alias for frontend compatibility)
+router.get('/articles/:id',
+  optionalAuth,
+  asyncHandler(async (req, res) => {
+    const article = await Article.findById(req.params.id)
+      .populate('author', 'name email');
+    
+    if (!article) {
+      return res.status(404).json({ error: 'Article not found' });
+    }
+    
+    // Check visibility
+    if (!article.isPublic && (!req.user || req.user.role !== 'admin')) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+    
+    // Increment view count for published articles
+    if (article.status === 'published') {
+      article.views = (article.views || 0) + 1;
+      await article.save();
+    }
+    
+    res.json(article);
+  })
+);
+
+// Create new article (alias for frontend compatibility)
+router.post('/articles',
+  authenticateToken,
+  requireAdmin,
+  validateRequest(createArticleSchema),
+  asyncHandler(async (req, res) => {
+    const { title, content, category, tags = [], isPublic = true } = req.body;
+    
+    const article = new Article({
+      title,
+      content,
+      category,
+      tags,
+      isPublic,
+      author: req.user._id,
+      status: 'published'
+    });
+    
+    await article.save();
+    await article.populate('author', 'name email');
+    
+    res.status(201).json(article);
+  })
+);
+
+// Delete article (alias for frontend compatibility)
+router.delete('/articles/:id',
+  authenticateToken,
+  requireAdmin,
+  asyncHandler(async (req, res) => {
+    const article = await Article.findById(req.params.id);
+    
+    if (!article) {
+      return res.status(404).json({ error: 'Article not found' });
+    }
+    
+    await Article.findByIdAndDelete(req.params.id);
+    
+    res.json({ message: 'Article deleted successfully' });
+  })
+);
+
 // Search articles (public endpoint with optional auth)
 router.get('/',
   optionalAuth,

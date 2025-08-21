@@ -287,6 +287,75 @@ router.post('/:id/reply',
   })
 );
 
+// Add comment to ticket (alias for reply to match frontend expectation)
+router.post('/:id/comments',
+  authenticateToken,
+  validateRequest(addReplySchema),
+  asyncHandler(async (req, res) => {
+    const { content, isInternal = false } = req.body;
+    
+    const ticket = await Ticket.findById(req.params.id);
+    
+    if (!ticket) {
+      return res.status(404).json({ error: 'Ticket not found' });
+    }
+    
+    // Check permissions
+    const canReply = 
+      req.user.role === 'admin' ||
+      ticket.createdBy.toString() === req.user._id.toString() ||
+      (req.user.role === 'agent' && (
+        !ticket.assignee || 
+        ticket.assignee.toString() === req.user._id.toString()
+      ));
+    
+    if (!canReply) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+    
+    // Users cannot add internal notes
+    if (req.user.role === 'user' && isInternal) {
+      return res.status(403).json({ error: 'Users cannot add internal notes' });
+    }
+    
+    await ticket.addReply(req.user._id, content, isInternal);
+    
+    // Update ticket status if needed
+    if (req.user.role === 'agent' && ticket.status === 'waiting_human') {
+      ticket.status = 'in_progress';
+      await ticket.save();
+    }
+    
+    // Log the reply
+    await AuditLog.logAction({
+      ticketId: ticket._id,
+      traceId: `reply-${Date.now()}`,
+      actor: req.user.role,
+      actorId: req.user._id,
+      action: 'reply_added',
+      description: `${isInternal ? 'Internal note' : 'Comment'} added`,
+      meta: { 
+        isInternal,
+        contentLength: content.length 
+      }
+    });
+    
+    await ticket.populate('replies.author', 'name email role');
+    
+    // Return the newly added comment in the format expected by frontend
+    const newComment = ticket.replies[ticket.replies.length - 1];
+    res.json({
+      _id: newComment._id,
+      content: newComment.content,
+      author: {
+        name: newComment.author.name,
+        role: newComment.author.role
+      },
+      createdAt: newComment.createdAt
+    });
+  })
+);
+
 // Assign ticket to agent
 router.post('/:id/assign',
   authenticateToken,

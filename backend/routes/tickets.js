@@ -470,11 +470,14 @@ router.post('/:id/assign',
       await ticket.save();
       
       // Log the assignment
-      await AuditLog.create({
+      await AuditLog.logAction({
         ticketId: ticket._id,
-        action: 'ticket_assigned',
-        performedBy: req.user._id,
-        details: {
+        traceId: `assign-direct-${Date.now()}`,
+        actor: 'admin',
+        actorId: req.user._id,
+        action: 'assigned',
+        description: `Ticket directly assigned by admin to agent`,
+        meta: { 
           assignedAgent: assigneeId,
           previousStatus: ticket.status
         }
@@ -493,11 +496,14 @@ router.post('/:id/assign',
       await ticket.requestAssignment(req.user._id);
       
       // Log the assignment request
-      await AuditLog.create({
+      await AuditLog.logAction({
         ticketId: ticket._id,
+        traceId: `assign-request-${Date.now()}`,
+        actor: 'agent',
+        actorId: req.user._id,
         action: 'assignment_requested',
-        performedBy: req.user._id,
-        details: {
+        description: `Assignment request submitted by ${req.user.name}`,
+        meta: { 
           requestedAgent: req.user._id
         }
       });
@@ -599,6 +605,9 @@ router.post('/:id/assign/reject',
       console.log('Rejecting assignment for ticket:', req.params.id);
       console.log('Current pendingAssignment:', ticket.pendingAssignment);
       
+      // Store the agent ID before rejecting (since it will be cleared)
+      const rejectedAgentId = ticket.pendingAssignment.requestedBy;
+      
       await ticket.rejectAssignment(adminNotes);
       
       console.log('Assignment rejected successfully');
@@ -612,17 +621,17 @@ router.post('/:id/assign/reject',
         action: 'assignment_rejected',
         description: `Assignment request rejected by ${req.user.name}`,
         meta: { 
-          rejectedAgent: ticket.pendingAssignment.requestedBy ? 
-            (typeof ticket.pendingAssignment.requestedBy === 'object' ? 
-              ticket.pendingAssignment.requestedBy._id || ticket.pendingAssignment.requestedBy.toString() : 
-              ticket.pendingAssignment.requestedBy.toString()) : 'Unknown',
+          rejectedAgent: rejectedAgentId ? 
+            (typeof rejectedAgentId === 'object' ? 
+              rejectedAgentId._id || rejectedAgentId.toString() : 
+              rejectedAgentId.toString()) : 'Unknown',
           adminNotes
         }
       });
       
       console.log('Audit log created successfully');
       
-      await ticket.populate(['createdBy', 'assignee', 'pendingAssignment.requestedBy'], 'name email');
+      await ticket.populate(['createdBy', 'assignee'], 'name email');
       
       console.log('Ticket populated successfully');
       

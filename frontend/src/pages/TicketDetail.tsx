@@ -27,16 +27,7 @@ interface Ticket {
     name: string;
     email: string;
   };
-  pendingAssignment?: {
-    requestedBy: {
-      _id: string;
-      name: string;
-      email: string;
-    };
-    requestedAt: string;
-    status: 'pending' | 'approved' | 'rejected';
-    adminNotes?: string;
-  };
+
   replies: Array<{
     _id: string;
     content: string;
@@ -164,55 +155,7 @@ const TicketDetail: React.FC = () => {
     }
   };
 
-  const requestAssignment = async () => {
-    try {
-      await api.post(`/tickets/${id}/assign`, { assigneeId: null });
-      setUpdateMessage('Assignment request submitted successfully');
-      fetchTicket();
-      setTimeout(() => setUpdateMessage(null), 5000);
-    } catch (err: any) {
-      console.error('Error requesting assignment:', err);
-      const errorMessage = err.response?.data?.error || 'Failed to request assignment';
-      setUpdateMessage(errorMessage);
-      setTimeout(() => setUpdateMessage(null), 5000);
-    }
-  };
 
-  const approveAssignment = async () => {
-    try {
-      setUpdating(true);
-      setUpdateMessage(null);
-      await api.post(`/tickets/${id}/assign/approve`, { adminNotes: '' });
-      setUpdateMessage('Assignment request approved successfully');
-      fetchTicket();
-      setTimeout(() => setUpdateMessage(null), 5000);
-    } catch (err: any) {
-      console.error('Error approving assignment:', err);
-      const errorMessage = err.response?.data?.error || 'Failed to approve assignment';
-      setUpdateMessage(`Error: ${errorMessage}`);
-      setTimeout(() => setUpdateMessage(null), 5000);
-    } finally {
-      setUpdating(false);
-    }
-  };
-
-  const rejectAssignment = async () => {
-    try {
-      setUpdating(true);
-      setUpdateMessage(null);
-      await api.post(`/tickets/${id}/assign/reject`, { adminNotes: '' });
-      setUpdateMessage('Assignment request rejected successfully');
-      fetchTicket();
-      setTimeout(() => setUpdateMessage(null), 5000);
-    } catch (err: any) {
-      console.error('Error rejecting assignment:', err);
-      const errorMessage = err.response?.data?.error || 'Failed to reject assignment';
-      setUpdateMessage(`Error: ${errorMessage}`);
-      setTimeout(() => setUpdateMessage(null), 5000);
-    } finally {
-      setUpdating(false);
-    }
-  };
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -374,98 +317,7 @@ const TicketDetail: React.FC = () => {
         </CardContent>
       </Card>
 
-      {/* Assignment Section - Only visible to agents and admins */}
-      {(user?.role === 'agent' || user?.role === 'admin') && (
-        <div className="bg-white rounded-lg shadow p-6 mb-6">
-          <h3 className="text-lg font-semibold mb-4">Assignment</h3>
-        
-          {ticket.assignee ? (
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-600">Currently assigned to:</p>
-                <p className="font-medium">{ticket.assignee.name} ({ticket.assignee.email})</p>
-              </div>
-              {user?.role === 'admin' && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {/* TODO: Implement reassignment */}}
-                >
-                  Reassign
-                </Button>
-              )}
-            </div>
-          ) : ticket.pendingAssignment ? (
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-gray-600">Assignment request:</p>
-                  <p className="font-medium">
-                    {ticket.pendingAssignment?.requestedBy?.name || 'Unknown Agent'} ({ticket.pendingAssignment?.requestedBy?.email || 'No email'})
-                  </p>
-                  <p className="text-xs text-gray-500">
-                    Requested: {new Date(ticket.pendingAssignment?.requestedAt || '').toLocaleDateString()}
-                  </p>
-                  <Badge className={`mt-2 ${
-                    ticket.pendingAssignment?.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
-                    ticket.pendingAssignment?.status === 'approved' ? 'bg-green-100 text-green-800' :
-                    'bg-red-100 text-red-800'
-                  }`}>
-                    {ticket.pendingAssignment?.status === 'pending' && '⏳ Pending Approval'}
-                    {ticket.pendingAssignment?.status === 'approved' && '✅ Approved'}
-                    {ticket.pendingAssignment?.status === 'rejected' && '❌ Rejected'}
-                  </Badge>
-                </div>
-                
-                {user?.role === 'admin' && ticket.pendingAssignment?.status === 'pending' && (
-                  <div className="flex gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="bg-green-50 text-green-700 border-green-200 hover:bg-green-100"
-                      onClick={approveAssignment}
-                      disabled={updating}
-                    >
-                      {updating ? 'Approving...' : 'Approve'}
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="bg-red-50 text-red-700 border-red-200 hover:bg-red-100"
-                      onClick={rejectAssignment}
-                      disabled={updating}
-                    >
-                      {updating ? 'Rejecting...' : 'Reject'}
-                    </Button>
-                  </div>
-                )}
-              </div>
-              
-              {ticket.pendingAssignment?.adminNotes && (
-                <div className="text-sm text-gray-600 bg-gray-50 p-3 rounded">
-                  <strong>Admin Notes:</strong> {ticket.pendingAssignment?.adminNotes}
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-600">No agent assigned</p>
-                <p className="text-xs text-gray-500">This ticket is available for assignment</p>
-              </div>
-              {user?.role === 'agent' && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={requestAssignment}
-                >
-                  Request Assignment
-                </Button>
-              )}
-            </div>
-          )}
-        </div>
-      )}
+
 
       {/* Comments */}
       <Card>

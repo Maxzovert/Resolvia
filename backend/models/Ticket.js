@@ -47,8 +47,7 @@ const ticketSchema = new mongoose.Schema({
     requestedAt: Date,
     status: {
       type: String,
-      enum: ['pending', 'approved', 'rejected'],
-      default: 'pending'
+      enum: ['pending', 'approved', 'rejected']
     },
     adminNotes: String
   },
@@ -199,7 +198,7 @@ ticketSchema.methods.requestAssignment = function(agentId) {
     throw new Error('You have already requested assignment for this ticket');
   }
   
-  // Create new assignment request
+  // Create new assignment request (overwrite any rejected assignment)
   this.pendingAssignment = {
     requestedBy: agentId,
     requestedAt: new Date(),
@@ -241,14 +240,16 @@ ticketSchema.methods.rejectAssignment = function(adminNotes) {
     throw new Error('No pending assignment request to reject');
   }
   
-  // Mark the assignment as rejected
-  this.pendingAssignment.status = 'rejected';
-  if (adminNotes) {
-    this.pendingAssignment.adminNotes = adminNotes;
-  }
+  // Store the rejected agent ID for audit purposes
+  const rejectedAgentId = this.pendingAssignment.requestedBy;
   
-  // Clear the pending assignment so other agents can request
-  this.pendingAssignment = undefined;
+  // Reset the pending assignment to allow new requests
+  this.pendingAssignment = {
+    requestedBy: null,
+    requestedAt: null,
+    status: 'rejected',
+    adminNotes: adminNotes || null
+  };
   
   // Update last activity
   this.lastActivity = new Date();
@@ -268,7 +269,12 @@ ticketSchema.methods.canRequestAssignment = function(agentId) {
     return { canRequest: false, reason: 'Ticket already has a pending assignment request' };
   }
   
-  // Agent must not have already requested this ticket
+  // If the assignment was rejected, allow new requests
+  if (this.pendingAssignment && this.pendingAssignment.status === 'rejected') {
+    return { canRequest: true };
+  }
+  
+  // Agent must not have already requested this ticket (only if there's a pending assignment)
   if (this.pendingAssignment && 
       this.pendingAssignment.requestedBy && 
       this.pendingAssignment.requestedBy.toString() === agentId.toString()) {

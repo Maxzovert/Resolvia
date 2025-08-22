@@ -149,7 +149,7 @@ const AgentDashboard: React.FC = () => {
 
   const requestAssignment = async (ticketId: string) => {
     try {
-      await api.post(`/tickets/${ticketId}/assign`, { assigneeId: null });
+      await api.post(`/tickets/${ticketId}/assign`, {});
       // Refresh data to show updated status
       fetchDashboardData();
     } catch (err) {
